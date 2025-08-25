@@ -10,6 +10,11 @@ interface ConversationViewProps {
   customerName?: string
 }
 
+interface OptimisticMessage extends WebhookRecord {
+  optimisticId?: string
+  status?: 'pending' | 'sent' | 'failed'
+}
+
 
 export default function ConversationView({ 
   conversationId, 
@@ -17,15 +22,15 @@ export default function ConversationView({
   customerId,
   customerName
 }: ConversationViewProps) {
-  const [messages, setMessages] = useState<WebhookRecord[]>([])
+  const [messages, setMessages] = useState<OptimisticMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [messageText, setMessageText] = useState('')
-  const [sending, setSending] = useState(false)
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (conversationId) {
@@ -58,15 +63,46 @@ export default function ConversationView({
             console.log('🔔 New webhook received:', payload)
             const newMessage = payload.new as WebhookRecord
             
-            // 클라이언트 측에서 필터링
+            // 클라이언트 측에서 필터링 (read 타입 제외)
+            if (newMessage.webhook_type === 'read') {
+              console.log('⏭️ Skipping read webhook')
+              return
+            }
+            
             const isRelevant = 
               (newMessage.sender_id === participant1 && newMessage.recipient_id === participant2) ||
               (newMessage.sender_id === participant2 && newMessage.recipient_id === participant1)
             
             if (isRelevant) {
               console.log('✅ Message is relevant to this conversation')
-              setMessages(prev => [...prev, newMessage])
-              // 새 메시지가 추가되면 스크롤 (특히 echo 메시지)
+              
+              // echo 메시지인 경우 낙관적 메시지를 대체
+              if (newMessage.is_echo) {
+                setMessages(prev => {
+                  // 같은 텍스트의 낙관적 메시지 찾기 (pending 또는 sent 상태)
+                  const optimisticIndex = prev.findIndex(msg => 
+                    msg.optimisticId && // 낙관적 메시지인지 확인
+                    (msg.status === 'pending' || msg.status === 'sent') &&
+                    msg.message_text === newMessage.message_text &&
+                    msg.sender_id === newMessage.sender_id
+                  )
+                  
+                  if (optimisticIndex !== -1) {
+                    // 낙관적 메시지를 실제 메시지로 대체
+                    const newMessages = [...prev]
+                    newMessages[optimisticIndex] = newMessage
+                    return newMessages
+                  }
+                  // 매칭되는 낙관적 메시지가 없으면 추가하지 않음 (중복 방지)
+                  console.warn('Echo message received but no matching optimistic message found:', newMessage)
+                  return prev
+                })
+              } else {
+                // 일반 메시지는 그냥 추가
+                setMessages(prev => [...prev, newMessage])
+              }
+              
+              // 새 메시지가 추가되면 스크롤
               setTimeout(() => {
                 scrollToBottom()
               }, 50)
@@ -184,11 +220,56 @@ export default function ConversationView({
     }
   }
 
-  const sendMessage = async () => {
-    if (!messageText.trim() || !customerId || sending) return
+  const sendMessage = async (retryMessage?: OptimisticMessage) => {
+    // 재시도가 아닌 경우 현재 입력창의 텍스트 사용
+    let messageContent: string
+    if (retryMessage) {
+      messageContent = retryMessage.message_text || ''
+    } else {
+      // 현재 입력창 텍스트를 가져오고 즉시 비우기
+      messageContent = messageText.trim()
+      if (!messageContent) return
+      setMessageText('') // 즉시 입력창 비우기
+      
+      // Reset textarea height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
+      }
+    }
+    
+    if (!messageContent || !customerId) return
 
-    const messageContent = messageText.trim()
-    setSending(true)
+    const optimisticId = retryMessage?.optimisticId || `optimistic-${Date.now()}-${Math.random()}`
+    
+    if (!retryMessage) {
+      // 새 메시지일 때만 낙관적 업데이트
+      const optimisticMessage: OptimisticMessage = {
+        id: optimisticId,
+        optimisticId,
+        webhook_type: 'message',
+        sender_id: businessAccountId,
+        recipient_id: customerId,
+        message_text: messageContent,
+        message_timestamp: Date.now(),
+        is_echo: true,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        raw_data: {},
+        is_deleted: false,
+        is_unsupported: false,
+        processed: false
+      }
+      
+      setMessages(prev => [...prev, optimisticMessage])
+      setTimeout(() => scrollToBottom(), 50)
+    } else {
+      // 재시도일 때 상태만 업데이트
+      setMessages(prev => prev.map(msg => 
+        msg.optimisticId === optimisticId 
+          ? { ...msg, status: 'pending' }
+          : msg
+      ))
+    }
     
     try {
       const response = await fetch('/api/messages/send', {
@@ -204,27 +285,56 @@ export default function ConversationView({
       })
 
       if (!response.ok) {
-        const error = await response.json()
-        alert(`전송 실패: ${error.message || 'Unknown error'}`)
-        setMessageText(messageContent) // 실패 시 메시지 복원
-      } else {
-        setMessageText('') // 성공 시에만 입력창 비우기
+        throw new Error(`전송 실패: ${(await response.json()).message || 'Unknown error'}`)
       }
+      
+      // 성공 시 상태 업데이트 (나중에 echo 웹훅으로 대체됨)
+      setMessages(prev => prev.map(msg => 
+        msg.optimisticId === optimisticId 
+          ? { ...msg, status: 'sent' }
+          : msg
+      ))
     } catch (error) {
       console.error('Send error:', error)
-      alert('메시지 전송 중 오류가 발생했습니다')
-      setMessageText(messageContent) // 오류 시 메시지 복원
-    } finally {
-      setSending(false)
+      // 실패 시 상태 업데이트
+      setMessages(prev => prev.map(msg => 
+        msg.optimisticId === optimisticId 
+          ? { ...msg, status: 'failed' }
+          : msg
+      ))
     }
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      if (!sending) { // 전송 중이 아닐 때만 전송
-        sendMessage()
-      }
+  const retryMessage = (message: OptimisticMessage) => {
+    sendMessage(message)
+  }
+
+  const deleteFailedMessage = (optimisticId: string) => {
+    setMessages(prev => prev.filter(msg => msg.optimisticId !== optimisticId))
+  }
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 한글 입력 중(조합 중)이면 무시
+    if (e.nativeEvent.isComposing) {
+      return
+    }
+    
+    // Enter는 줄바꿈으로 사용 (전송은 버튼 클릭으로만)
+    // Shift+Enter, Ctrl+Enter 등 모든 Enter는 줄바꿈
+  }
+
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setMessageText(e.target.value)
+    
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      const scrollHeight = textareaRef.current.scrollHeight
+      const lineHeight = 20 // Approximate line height for text-xs
+      const maxLines = 3
+      const maxHeight = lineHeight * maxLines
+      
+      textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`
     }
   }
 
@@ -235,10 +345,13 @@ export default function ConversationView({
       ? new Date(timestamp) 
       : new Date(timestamp)
     
-    return date.toLocaleTimeString('ko-KR', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    // 오전/오후 형식으로 시간 표시
+    const hours = date.getHours()
+    const minutes = date.getMinutes()
+    const period = hours < 12 ? '오전' : '오후'
+    const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+    
+    return `${period} ${displayHours}:${minutes.toString().padStart(2, '0')}`
   }
 
   const formatDate = (timestamp?: number | string) => {
@@ -255,11 +368,29 @@ export default function ConversationView({
         return '날짜 없음'
       }
       
-      return date.toLocaleDateString('ko-KR', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      })
+      const now = new Date()
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const yesterday = new Date(today)
+      yesterday.setDate(yesterday.getDate() - 1)
+      const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+      
+      // 오늘
+      if (messageDate.getTime() === today.getTime()) {
+        return '오늘'
+      }
+      
+      // 어제
+      if (messageDate.getTime() === yesterday.getTime()) {
+        return '어제'
+      }
+      
+      // 올해
+      if (date.getFullYear() === now.getFullYear()) {
+        return `${date.getMonth() + 1}월 ${date.getDate()}일`
+      }
+      
+      // 작년 이전
+      return `${date.getFullYear()}.${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getDate().toString().padStart(2, '0')}`
     } catch (error) {
       console.error('Date formatting error:', error, timestamp)
       return '날짜 없음'
@@ -270,7 +401,7 @@ export default function ConversationView({
     // 텍스트 메시지
     if (message.message_text) {
       return (
-        <p className="text-sm whitespace-pre-wrap break-words">
+        <p className="text-xs whitespace-pre-wrap break-words">
           {message.message_text}
         </p>
       )
@@ -312,7 +443,7 @@ export default function ConversationView({
               return (
                 <div key={idx} className="flex items-center gap-2 p-2 bg-gray-100 rounded">
                   <span className="text-2xl">📎</span>
-                  <span className="text-sm">{attachment.type}</span>
+                  <span className="text-xs">{attachment.type}</span>
                 </div>
               )
             }
@@ -324,7 +455,7 @@ export default function ConversationView({
     // 반응
     if (message.webhook_type === 'reaction') {
       return (
-        <p className="text-sm italic text-gray-600">
+        <p className="text-xs italic text-gray-600">
           {message.reaction_action === 'react' 
             ? `${message.reaction_emoji || message.reaction_type} 반응 추가`
             : '반응 제거'}
@@ -335,7 +466,7 @@ export default function ConversationView({
     // 포스트백
     if (message.webhook_type === 'postback') {
       return (
-        <p className="text-sm">
+        <p className="text-xs">
           <span className="inline-flex items-center px-2 py-1 rounded bg-blue-100 text-blue-800">
             버튼 클릭: {message.postback_title}
           </span>
@@ -354,7 +485,7 @@ export default function ConversationView({
 
     // 기타
     return (
-      <p className="text-sm text-gray-500">
+      <p className="text-xs text-gray-500">
         {message.webhook_type} 메시지
       </p>
     )
@@ -393,7 +524,7 @@ export default function ConversationView({
           <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">대화를 선택하세요</p>
+          <p className="mt-2 text-xs text-gray-500">대화를 선택하세요</p>
         </div>
       </div>
     )
@@ -403,10 +534,10 @@ export default function ConversationView({
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 bg-white">
-        <h3 className="text-lg font-semibold text-gray-900">
+        <h3 className="text-base font-semibold text-gray-900">
           {customerName || customerId || 'Unknown User'}
         </h3>
-        <p className="text-sm text-gray-500">
+        <p className="text-xs text-gray-500">
           Instagram Direct Message
         </p>
       </div>
@@ -432,7 +563,7 @@ export default function ConversationView({
             
             {/* 더 이상 메시지가 없을 때 */}
             {!hasMore && messages.length > 0 && (
-              <div className="text-center text-gray-500 text-sm py-2">
+              <div className="text-center text-gray-500 text-xs py-2">
                 대화의 시작입니다
               </div>
             )}
@@ -441,33 +572,71 @@ export default function ConversationView({
               <div key={date}>
                 {/* Date Separator */}
                 <div className="flex items-center justify-center my-4">
-                  <div className="bg-gray-200 text-gray-600 text-xs px-3 py-1 rounded-full">
+                  <div className="bg-gray-200 text-gray-600 text-[10px] px-2 py-0.5 rounded-full">
                     {date}
                   </div>
                 </div>
 
                 {/* Messages for this date */}
-                {dateMessages.map((message) => {
-                  const isBusinessMessage = message.sender_id === businessAccountId || message.is_echo
+                {dateMessages.map((message, index) => {
+                  const msg = message as OptimisticMessage
+                  const isBusinessMessage = msg.sender_id === businessAccountId || msg.is_echo
+                  
+                  // 다음 메시지와 같은 분(minute)인지 확인
+                  const nextMessage = dateMessages[index + 1] as OptimisticMessage | undefined
+                  const currentTime = formatTime(msg.message_timestamp || msg.created_at)
+                  const nextTime = nextMessage ? formatTime(nextMessage.message_timestamp || nextMessage.created_at) : null
+                  const isSameMinuteAsNext = nextMessage && 
+                    currentTime === nextTime && 
+                    ((msg.sender_id === businessAccountId || msg.is_echo) === (nextMessage.sender_id === businessAccountId || nextMessage.is_echo))
                   
                   return (
                     <div
-                      key={message.id}
-                      className={`flex ${isBusinessMessage ? 'justify-end' : 'justify-start'} mb-3 group`}
+                      key={msg.optimisticId || msg.id}
+                      className={`flex ${isBusinessMessage ? 'justify-end' : 'justify-start'} ${isSameMinuteAsNext ? 'mb-1' : 'mb-3'} group`}
                     >
                       <div className={`flex ${isBusinessMessage ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 max-w-xs lg:max-w-md`}>
                         <div
-                          className={`px-4 py-2 rounded-2xl ${
+                          className={`px-4 py-2 rounded-2xl relative ${
                             isBusinessMessage
                               ? 'bg-blue-600 text-white'
                               : 'bg-gray-100 text-gray-900'
-                          }`}
+                          } ${msg.status === 'pending' ? 'opacity-70' : ''}`}
                         >
-                          {renderMessageContent(message)}
+                          {renderMessageContent(msg)}
+                          
+                          {/* 전송 상태 표시 */}
+                          {msg.status === 'failed' && (
+                            <div className="absolute -right-20 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                              <button
+                                onClick={() => retryMessage(msg)}
+                                className="p-1 rounded-full bg-red-500 text-white hover:bg-red-600"
+                                title="재전송"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => deleteFailedMessage(msg.optimisticId!)}
+                                className="p-1 rounded-full bg-gray-500 text-white hover:bg-gray-600"
+                                title="삭제"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        <div className="text-xs text-gray-500 mb-1">
-                          {formatTime(message.message_timestamp || message.created_at)}
-                        </div>
+                        {/* 같은 시간대 그룹의 마지막 메시지에만 시간 표시 */}
+                        {!isSameMinuteAsNext && (
+                          <div className="text-[10px] text-gray-500 mb-1 whitespace-nowrap">
+                            {formatTime(msg.message_timestamp || msg.created_at)}
+                            {msg.status === 'pending' && ' • 전송 중...'}
+                            {msg.status === 'failed' && ' • 실패'}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
@@ -481,33 +650,55 @@ export default function ConversationView({
 
       {/* Message Input */}
       <div className="px-6 py-4 border-t border-gray-200 bg-white">
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
+        <div className="flex items-end gap-2">
+          {/* File Attachment Button */}
+          <button
+            className="p-1.5 text-gray-500 hover:text-gray-700 transition-colors"
+            title="파일 첨부 (준비 중)"
+            disabled
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </button>
+          
+          {/* Textarea */}
+          <textarea
+            ref={textareaRef}
             value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
+            onChange={handleTextareaChange}
             onKeyDown={handleKeyPress}
-            placeholder={customerId ? "메시지를 입력하세요..." : "대화를 선택하세요"}
+            placeholder={customerId ? "메시지를 입력하세요... (Enter로 줄바꿈)" : "대화를 선택하세요"}
             disabled={!customerId}
-            className={`flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            rows={1}
+            className={`flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded-lg resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               !customerId ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
             }`}
+            style={{
+              minHeight: '32px',
+              maxHeight: '60px', // Approximately 3 lines
+            }}
           />
+          
+          {/* Send Button */}
           <button
-            onClick={sendMessage}
-            disabled={!customerId || !messageText.trim() || sending}
-            className={`px-6 py-2 rounded-full font-medium transition-colors ${
-              !customerId || !messageText.trim() || sending
+            onClick={() => {
+              sendMessage()
+              // Reset textarea height after sending
+              if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto'
+              }
+            }}
+            disabled={!customerId || !messageText.trim()}
+            className={`px-4 py-1.5 text-xs rounded-full font-medium transition-colors ${
+              !customerId || !messageText.trim()
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
           >
-            {sending ? '전송 중...' : '전송'}
+            전송
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Enter로 전송, Shift+Enter로 줄바꿈
-        </p>
       </div>
     </div>
   )

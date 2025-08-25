@@ -199,11 +199,14 @@ export async function GET(
 
     // fetch_count 증가 (수동으로 처리)
     if (savedProfile?.id) {
-      await supabase
-        .from('instagram_user_profiles')
-        .update({ fetch_count: (savedProfile.fetch_count || 0) + 1 })
-        .eq('id', savedProfile.id)
-        .catch(err => console.log('Could not increment fetch_count:', err))
+      try {
+        await supabase
+          .from('instagram_user_profiles')
+          .update({ fetch_count: (savedProfile.fetch_count || 0) + 1 })
+          .eq('id', savedProfile.id)
+      } catch (err) {
+        console.log('Could not increment fetch_count:', err)
+      }
     }
 
     console.log(`✅ Profile saved/updated for ${igsid}`)

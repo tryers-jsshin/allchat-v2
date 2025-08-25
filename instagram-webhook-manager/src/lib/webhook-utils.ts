@@ -98,7 +98,9 @@ export function parseWebhookPayload(payload: any) {
     if (messaging.message) {
       webhookData.webhook_type = 'message'
       webhookData.message_id = messaging.message.mid || null
-      webhookData.message_text = messaging.message.text || null
+      // Properly handle newlines in message text
+      webhookData.message_text = messaging.message.text ? 
+        messaging.message.text.replace(/\\n/g, '\n') : null
       webhookData.is_deleted = messaging.message.is_deleted || false
       webhookData.is_echo = messaging.message.is_echo || false
       webhookData.is_unsupported = messaging.message.is_unsupported || false

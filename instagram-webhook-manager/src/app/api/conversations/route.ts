@@ -24,7 +24,9 @@ export async function GET(request: NextRequest) {
     // 상태 필터링
     if (status && status !== 'all') {
       if (status === 'active') {
-        query = query.in('status', ['new', 'in_progress', 'waiting_customer', 'waiting_agent'])
+        query = query.in('status', ['pending', 'in_progress'])
+      } else if (status === 'completed') {
+        query = query.eq('status', 'completed')
       } else {
         query = query.eq('status', status)
       }
