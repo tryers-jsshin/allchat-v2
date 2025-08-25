@@ -75,9 +75,58 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Webhook saved to database:', data)
 
+    // 프로필 가져오기 트리거 (비동기로 처리)
+    if (webhookData.sender_id && webhookData.webhook_type === 'message' && !webhookData.is_echo) {
+      // 사용자가 메시지를 보낸 경우에만 프로필 가져오기 (동의 획득)
+      triggerProfileFetch(webhookData.sender_id).catch(err => {
+        console.error('Profile fetch trigger error:', err)
+      })
+    }
+
     return NextResponse.json({ success: true }, { status: 200 })
   } catch (error) {
     console.error('❌ Webhook processing error:', error)
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
+  }
+}
+
+// 프로필 가져오기를 비동기로 트리거
+async function triggerProfileFetch(igsid: string) {
+  try {
+    console.log(`👤 Triggering profile fetch for ${igsid}`)
+    
+    // 내부 API 호출
+    const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000'
+    const response = await fetch(`${baseUrl}/api/profiles/${igsid}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    })
+
+    if (!response.ok) {
+      const error = await response.json()
+      console.error(`Failed to fetch profile for ${igsid}:`, error)
+      
+      // 동의 부족 에러는 정상적인 상황
+      if (error.error === 'User consent required') {
+        console.log(`User consent not yet granted for ${igsid}`)
+      }
+    } else {
+      const data = await response.json()
+      console.log(`✅ Profile fetched for ${igsid}:`, data.profile?.username || 'unknown')
+      
+      // 프로필 ID를 webhook 레코드에 연결 (선택적)
+      if (data.profile?.id) {
+        await supabase
+          .from('instagram_webhooks')
+          .update({ sender_profile_id: data.profile.id })
+          .eq('sender_id', igsid)
+          .order('created_at', { ascending: false })
+          .limit(1)
+      }
+    }
+  } catch (error) {
+    console.error(`Error in profile fetch trigger for ${igsid}:`, error)
   }
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { WebhookRecord, supabase } from '@/lib/supabase'
+import UserProfileCard from './UserProfileCard'
 
 export default function WebhookDashboard() {
   const [webhooks, setWebhooks] = useState<WebhookRecord[]>([])
@@ -202,7 +203,15 @@ export default function WebhookDashboard() {
                           {getMessagePreview(webhook)}
                         </p>
                         <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
-                          <span>From: {webhook.sender_id || 'Unknown'}</span>
+                          {!webhook.is_echo && webhook.sender_id ? (
+                            <UserProfileCard 
+                              igsid={webhook.sender_id} 
+                              showDetails={false}
+                              className="inline-flex !p-1 !shadow-none"
+                            />
+                          ) : (
+                            <span>From: {webhook.sender_id || 'Unknown'}</span>
+                          )}
                           {webhook.reply_to_message_id && <span className="text-blue-600">↩️ Reply</span>}
                           {webhook.is_echo && <span className="text-green-600">📤 Sent</span>}
                         </div>
@@ -249,14 +258,28 @@ export default function WebhookDashboard() {
                       </div>
                     )}
                     
+                    {/* Sender Profile */}
+                    {selectedWebhook.sender_id && !selectedWebhook.is_echo && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">Sender Profile:</span>
+                        <div className="mt-2">
+                          <UserProfileCard 
+                            igsid={selectedWebhook.sender_id} 
+                            showDetails={true}
+                            className="border border-gray-200"
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <span className="text-xs font-medium text-gray-500">Sender:</span>
-                        <p className="text-sm text-gray-900">{selectedWebhook.sender_id || 'N/A'}</p>
+                        <span className="text-xs font-medium text-gray-500">Sender ID:</span>
+                        <p className="text-sm text-gray-900 font-mono text-xs">{selectedWebhook.sender_id || 'N/A'}</p>
                       </div>
                       <div>
-                        <span className="text-xs font-medium text-gray-500">Recipient:</span>
-                        <p className="text-sm text-gray-900">{selectedWebhook.recipient_id || 'N/A'}</p>
+                        <span className="text-xs font-medium text-gray-500">Recipient ID:</span>
+                        <p className="text-sm text-gray-900 font-mono text-xs">{selectedWebhook.recipient_id || 'N/A'}</p>
                       </div>
                     </div>
                     

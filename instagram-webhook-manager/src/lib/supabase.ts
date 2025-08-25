@@ -64,4 +64,34 @@ export type WebhookRecord = {
   
   // Read receipt
   read_message_id?: string
+  
+  // Profile relationship
+  sender_profile_id?: string
+}
+
+export type UserProfile = {
+  id?: string
+  igsid: string
+  name?: string | null
+  username?: string | null
+  profile_pic?: string | null
+  profile_pic_updated_at?: string
+  follower_count?: number
+  is_verified_user?: boolean
+  is_user_follow_business?: boolean
+  is_business_follow_user?: boolean
+  has_user_consent?: boolean
+  consent_granted_at?: string
+  raw_profile_data?: any
+  created_at?: string
+  updated_at?: string
+  last_fetched_at?: string
+  fetch_error?: string | null
+  cache_expires_at?: string
+  fetch_count?: number
+  first_message_at?: string
+  last_message_at?: string
+  total_messages?: number
+  is_active?: boolean
+  notes?: string | null
 }

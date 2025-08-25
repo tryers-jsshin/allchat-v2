@@ -1,72 +1,87 @@
-# Instagram 사용자 프로필 API 가이드
+# Instagram User Profile API
 
-## 개요
+## Overview
 
-사용자 프로필 API를 사용하면 Instagram 범위 ID(IGSID)를 통해 고객 프로필 정보를 가져올 수 있습니다. 이 정보로 비즈니스와 상호작용하는 사용자를 위한 개인화된 경험을 만들 수 있습니다.
+The User Profile API allows your app to get an Instagram user's profile information using the user's Instagram-scoped ID received from an Instagram messaging webhook notification. Your app can use this information to create a personalized messaging experience for Instagram users who are interacting with your app users.
 
-## 사용자 동의
+## User Consent
 
-**⚠️ 중요: 사용자 프로필에 액세스하려면 사용자 동의가 필수입니다.**
+**⚠️ User consent is required to access an Instagram user's profile.**
 
-### 동의가 설정되는 경우
-- 사용자가 비즈니스에 메시지를 보낼 때
-- 아이스 브레이커를 클릭할 때
-- 고정 메뉴를 클릭할 때
+### When User Consent is Set
+- Instagram user sends a message to your app user
+- Instagram user clicks an icebreaker or persistent menu
 
-### 동의가 설정되지 않는 경우
-- 사용자가 게시물이나 댓글에 댓글을 남기지만 비즈니스에 메시지를 보내지 않은 경우
-- 이 경우 **"사용자 프로필에 액세스하려면 사용자 동의가 필수입니다"** 오류 메시지가 발생
+### When User Consent is Not Set
+- Instagram user comments on a post or comment but has not sent a message to your app user
+- In this case, your app will receive an error: **"User consent is required to access user profile"**
 
-## 요구사항
+## Requirements
 
-### 필요한 권한
-- `instagram_basic`
-- `instagram_manage_messages`
-- `pages_manage_metadata`
-- `pages_read_engagement`
-- `pages_show_list`
+### Access Level
+- **Advanced Access**: if your app serves Instagram professional accounts you don't own or manage
+- **Standard Access**: if your app serves Instagram professional accounts you own or manage and have added to your app in the App Dashboard
 
-### 액세스 토큰
-- 페이지에서 `MODERATE` 작업을 수행할 수 있는 사용자가 요청한 페이지 액세스 토큰
+### Access Tokens
+- An Instagram user access token requested from your app user who received the webhook notification and who can manage messages on the Instagram professional account
 
-### 제한사항
-- 고객이 비즈니스를 차단한 경우 고객의 정보를 볼 수 없음
+### Base URL
+All endpoints can be accessed via the `graph.instagram.com` host.
 
-## 사용자 프로필 필드
+### Endpoints
+- `/<IGSID>`
 
-### 모든 Graph API 버전에서 제공되는 필드
+### IDs
+- The Instagram-scoped ID (`<IGSID>`) for the Instagram user interested in your app user; received from a webhook notification
 
-| 필드명 | 타입 | 설명 |
-|--------|------|------|
-| `name` | 문자열 | 고객 이름 (이름을 설정하지 않은 경우 null일 수 있음) |
-| `profile_pic` | URL | 고객 프로필 사진의 URL (프로필 사진을 설정하지 않은 경우 null일 수 있음). 이 URL은 며칠 이내로 만료됩니다. |
+### Permissions
+- `instagram_business_basic`
+- `instagram_business_manage_messages`
 
-### Graph API v12.0 이상에서 제공되는 필드
+### Webhook Event Subscriptions
+- `messages`
+- `messaging_optins`
+- `messaging_postbacks`
+- `messaging_referral`
 
-| 필드명 | 타입 | 설명 |
-|--------|------|------|
-| `is_verified_user` | 부울 | 고객의 인증 상태 |
-| `follower_count` | 정수 | 고객의 팔로워 수 |
-| `is_user_follow_business` | 부울 | 고객이 비즈니스를 팔로우하는지 여부 |
-| `is_business_follow_user` | 부울 | 비즈니스가 고객을 팔로우하는지 여부 |
+### Limitations
+- If the Instagram user has blocked your app user, your app will not be able to view the Instagram user's information
 
-### Graph API v14.0 이상에서 제공되는 필드
+## Webhook Notification
 
-| 필드명 | 타입 | 설명 |
-|--------|------|------|
-| `username` | 문자열 | 고객 Instagram 계정의 사용자 이름 |
+To get profile information for an Instagram user who has messaged your app user's Instagram professional account, you need the Instagram-scoped ID from the `messages.sender.id` property in the webhook notification.
 
-## API 사용 방법
+### Webhook Payload Example
 
-고객의 프로필 정보를 가져오려면 고객의 Instagram 범위 ID 노드에 `GET` 요청을 보내고, 확인하려는 필드를 포함합니다.
-
-### 요청 예시
-
-```bash
-curl -X GET "https://graph.facebook.com/v23.0/{instagram-scoped-user-id}?fields=name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user&access_token={page-access-token}"
+```json
+{
+  "object": "instagram",
+  "entry": [
+    {
+      "id": "<YOUR_APP_USERS_IG_ID>",  // Your app user's Instagram Professional account ID
+      "time": <UNIX_TIMESTAMP>,
+      "messaging": [
+        {
+          "sender": { "id": "<INSTAGRAM_SCOPED_ID>" },    // Instagram-scoped ID for the Instagram user who sent the message
+          // ...
+        }
+      ]
+    }
+  ]
+}
 ```
 
-### 응답 예시
+## Get Profile Information
+
+To get the Instagram user's profile information, send a `GET` request to the `/<INSTAGRAM_SCOPED_ID>` endpoint with the `fields` parameter set to a comma-separated list of information you would like to view.
+
+### Sample Request
+
+```bash
+curl -X GET "https://graph.instagram.com/v23.0/<INSTAGRAM_SCOPED_ID>?fields=name,username,profile_pic,follower_count,is_user_follow_business,is_business_follow_user&access_token=<INSTAGRAM_ACCESS_TOKEN>"
+```
+
+### Sample Response
 
 ```json
 {
@@ -79,85 +94,160 @@ curl -X GET "https://graph.facebook.com/v23.0/{instagram-scoped-user-id}?fields=
 }
 ```
 
-## 실용적인 활용 사례
+## Field Reference
 
-### 1. 개인화된 고객 응대
+| Field Name | Type | Description |
+|------------|------|-------------|
+| `access_token` | string | The Instagram user access token from your app user who can manage messages on the Instagram professional account who received the webhook notification |
+| `follower_count` | int | The number of followers the Instagram user has |
+| `<IGSID>` | int | The Instagram-scoped ID returned in a webhook notification that represents the Instagram user who interacted with your app user's Instagram professional account and triggered the notification |
+| `is_business_follow_user` | boolean | Indicates whether your app user follows the Instagram user (`true`) or not (`false`) |
+| `is_user_follow_business` | boolean | Indicates whether the Instagram user follows your app user (`true`) or not (`false`) |
+| `is_verified_user` | boolean | Indicates whether the Instagram user has a verified Instagram account (`true`) or not (`false`) |
+| `name` | string | The Instagram user's name (can be null if name not set) |
+| `profile_pic` | url | The URL for the Instagram user's profile picture (can be null if profile pic not set). The URL will expire in a few days |
+| `username` | string | The Instagram user's username |
 
-```bash
-# 고객 프로필 정보 조회
-curl -X GET "https://graph.facebook.com/v23.0/{IGSID}?fields=name,username,is_verified_user,follower_count,is_user_follow_business&access_token={PAGE_TOKEN}"
-```
+## Practical Use Cases
 
-**활용 방법:**
-- VIP 고객(인증된 사용자 또는 팔로워 수가 많은 사용자) 식별
-- 팔로워 여부에 따른 차별화된 응답
-- 개인화된 인사말 생성
-
-### 2. CRM 시스템 연동
-
-```bash
-# 전체 프로필 정보 수집
-curl -X GET "https://graph.facebook.com/v23.0/{IGSID}?fields=name,username,profile_pic,follower_count,is_verified_user,is_user_follow_business,is_business_follow_user&access_token={PAGE_TOKEN}"
-```
-
-**활용 방법:**
-- 고객 데이터베이스에 프로필 정보 저장
-- 팔로우 관계 추적
-- 고객 세그멘테이션
-
-### 3. 인플루언서 식별
+### 1. Personalized Customer Service
 
 ```bash
-# 인플루언서 여부 확인
-curl -X GET "https://graph.facebook.com/v23.0/{IGSID}?fields=is_verified_user,follower_count,username&access_token={PAGE_TOKEN}"
+# Get customer profile for personalized response
+curl -X GET "https://graph.instagram.com/v23.0/<IGSID>?fields=name,username,is_verified_user,follower_count,is_user_follow_business&access_token=<TOKEN>"
 ```
 
-**활용 방법:**
-- 일정 팔로워 수 이상의 사용자 식별
-- 인증된 계정 확인
-- 협업 제안 대상 선별
+**Use Cases:**
+- Identify VIP customers (verified users or high follower count)
+- Customize responses based on follow relationship
+- Generate personalized greetings
 
-## 오류 처리
-
-### 일반적인 오류 상황
-
-1. **동의 없음 오류**
-   - 메시지: "사용자 프로필에 액세스하려면 사용자 동의가 필수입니다"
-   - 해결: 사용자가 먼저 메시지를 보내도록 유도
-
-2. **차단된 사용자**
-   - 상황: 고객이 비즈니스를 차단한 경우
-   - 결과: 프로필 정보 조회 불가
-
-3. **만료된 프로필 사진 URL**
-   - 상황: 며칠 후 프로필 사진 URL 만료
-   - 해결: 정기적으로 프로필 정보 업데이트
-
-## 개발 팁
-
-### 효율적인 데이터 관리
+### 2. CRM Integration
 
 ```bash
-# 필요한 필드만 요청하여 응답 시간 최적화
-curl -X GET "https://graph.facebook.com/v23.0/{IGSID}?fields=name,is_user_follow_business&access_token={PAGE_TOKEN}"
+# Collect comprehensive profile data
+curl -X GET "https://graph.instagram.com/v23.0/<IGSID>?fields=name,username,profile_pic,follower_count,is_verified_user,is_user_follow_business,is_business_follow_user&access_token=<TOKEN>"
 ```
 
-### 배치 처리
+**Use Cases:**
+- Store profile information in customer database
+- Track follow relationships
+- Customer segmentation
+
+### 3. Influencer Identification
 
 ```bash
-# 여러 사용자의 프로필 정보를 한 번에 조회
-curl -X GET "https://graph.facebook.com/v23.0/?ids={IGSID1},{IGSID2},{IGSID3}&fields=name,username,follower_count&access_token={PAGE_TOKEN}"
+# Check for influencer status
+curl -X GET "https://graph.instagram.com/v23.0/<IGSID>?fields=is_verified_user,follower_count,username&access_token=<TOKEN>"
 ```
 
-## 개발자 지원 리소스
+**Use Cases:**
+- Identify users with high follower counts
+- Verify account status
+- Target collaboration opportunities
 
-- [Meta Status 도구](https://metastatus.com/): Meta 비즈니스 제품의 상태와 중단 확인
-- [Meta 개발자 지원 도구](https://developers.facebook.com/support/): 버그 신고 및 지원 요청
-- [Messenger 플랫폼 지원 리소스](https://developers.facebook.com/docs/messenger-platform/support-resources): Messenger 플랫폼 관련 상세 지원
+## Implementation Example
 
-## 주요 포인트
+### Processing Webhook and Getting Profile
 
-- **동의 필수**: 사용자가 먼저 메시지를 보내야 프로필 정보 접근 가능
-- **필드 선택**: API 버전에 따라 사용 가능한 필드가 다름
-- **URL 만료**: 프로필 사진 URL은 며칠 내 만료되므로 정기 업데이트 필요
-- **개인화 활용**: 팔로우 관계, 인증 상태 등을 활용한 맞춤형 서비스 제공 가능
+```javascript
+// 1. Receive webhook notification
+app.post('/webhook', (req, res) => {
+  const { messaging } = req.body.entry[0];
+  const senderId = messaging[0].sender.id;
+  
+  // 2. Get user profile
+  getUserProfile(senderId);
+  
+  res.status(200).send('OK');
+});
+
+// 3. Fetch user profile function
+async function getUserProfile(igsid) {
+  const fields = 'name,username,follower_count,is_user_follow_business,is_verified_user';
+  const url = `https://graph.instagram.com/v23.0/${igsid}?fields=${fields}&access_token=${ACCESS_TOKEN}`;
+  
+  try {
+    const response = await fetch(url);
+    const profile = await response.json();
+    
+    // 4. Use profile data for personalization
+    if (profile.is_verified_user) {
+      console.log('VIP customer detected');
+    }
+    
+    if (profile.follower_count > 10000) {
+      console.log('Potential influencer');
+    }
+    
+    return profile;
+  } catch (error) {
+    console.error('Error fetching profile:', error);
+  }
+}
+```
+
+## Error Handling
+
+### Common Error Scenarios
+
+1. **User Consent Required**
+   - Error: "User consent is required to access user profile"
+   - Solution: Ensure user has sent a message first
+
+2. **Blocked User**
+   - Scenario: Customer has blocked the business
+   - Result: Unable to retrieve profile information
+
+3. **Expired Profile Picture URL**
+   - Scenario: Profile picture URL expires after a few days
+   - Solution: Regularly refresh profile data
+
+## Best Practices
+
+### Efficient Data Management
+
+```bash
+# Request only needed fields to optimize response time
+curl -X GET "https://graph.instagram.com/v23.0/<IGSID>?fields=name,is_user_follow_business&access_token=<TOKEN>"
+```
+
+### Batch Processing
+
+```bash
+# Get profile information for multiple users at once
+curl -X GET "https://graph.instagram.com/v23.0/?ids=<IGSID1>,<IGSID2>,<IGSID3>&fields=name,username,follower_count&access_token=<TOKEN>"
+```
+
+### Data Refresh Strategy
+
+```javascript
+// Refresh profile data periodically
+const refreshProfile = async (igsid) => {
+  const profile = await getUserProfile(igsid);
+  
+  // Update database with fresh profile data
+  await updateCustomerProfile(igsid, profile);
+};
+
+// Schedule periodic refresh
+setInterval(() => {
+  refreshActiveCustomerProfiles();
+}, 24 * 60 * 60 * 1000); // Daily refresh
+```
+
+## Next Steps
+
+Use this profile information to:
+- [Send Quick Replies](https://developers.facebook.com/docs/instagram/messaging-api/quick-replies)
+- Create personalized messaging experiences
+- Build comprehensive customer relationship management systems
+- Implement targeted marketing campaigns
+
+## Key Takeaways
+
+- **User consent is mandatory**: Users must message your business first
+- **Profile picture URLs expire**: Refresh data regularly
+- **Blocked users**: Cannot access profile information for blocked users
+- **Follow relationships**: Leverage follow status for personalized experiences
+- **Verification status**: Identify VIP customers and potential influencers
