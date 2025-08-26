@@ -547,13 +547,16 @@ export default function ConversationView({
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-2">
           <h3 className="text-base font-semibold text-gray-900">
             {customerName || customerId || 'Unknown User'}
           </h3>
-          <p className="text-xs text-gray-500">
-            Instagram Direct Message
-          </p>
+          {/* Instagram Icon */}
+          <img 
+            src="/instagram-logo.png" 
+            alt="Instagram" 
+            className="w-4 h-4 object-contain"
+          />
         </div>
         <button
           onClick={async () => {
