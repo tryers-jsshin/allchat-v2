@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useState, useRef, useMemo, Fragment } from 'react'
 import { supabase, WebhookRecord } from '@/lib/supabase'
 
 interface ConversationViewProps {
@@ -8,6 +8,8 @@ interface ConversationViewProps {
   businessAccountId?: string
   customerId?: string
   customerName?: string
+  status?: string
+  onStatusChange?: (newStatus: string) => void
 }
 
 interface OptimisticMessage extends WebhookRecord {
@@ -20,7 +22,9 @@ export default function ConversationView({
   conversationId, 
   businessAccountId,
   customerId,
-  customerName
+  customerName,
+  status = 'pending',
+  onStatusChange
 }: ConversationViewProps) {
   const [messages, setMessages] = useState<OptimisticMessage[]>([])
   const [loading, setLoading] = useState(false)
@@ -28,6 +32,9 @@ export default function ConversationView({
   const [messageText, setMessageText] = useState('')
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(true)
+  const [isFirstLoad, setIsFirstLoad] = useState(true)
+  const [isCompleting, setIsCompleting] = useState(false)
+  const [currentStatus, setCurrentStatus] = useState(status)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -38,6 +45,8 @@ export default function ConversationView({
       setMessages([])
       setOffset(0)
       setHasMore(true)
+      setIsFirstLoad(true)
+      setCurrentStatus(status)
       fetchMessages(0, true)
       
       // Realtime subscription for new messages
@@ -120,7 +129,7 @@ export default function ConversationView({
         supabase.removeChannel(channel)
       }
     }
-  }, [conversationId])
+  }, [conversationId, status])
 
   // \uc0c1\ub2e8 \uc2a4\ud06c\ub864 \uac10\uc9c0\ub97c \uc704\ud55c useEffect
   useEffect(() => {
@@ -128,8 +137,8 @@ export default function ConversationView({
     if (!container) return
 
     const handleScroll = () => {
-      // \uc0c1\ub2e8\uc5d0 \ub3c4\ub2ec\ud588\uc744 \ub54c (\uc2a4\ud06c\ub864 \uc704\uce58\uac00 100px \ubbf8\ub9cc\uc77c \ub54c)
-      if (container.scrollTop < 100 && hasMore && !loadingMore && messages.length > 0) {
+      // \uc0c1\ub2e8\uc5d0 \ub3c4\ub2ec\ud588\uc744 \ub54c (\uc2a4\ud06c\ub864 \uc704\uce58\uac00 300px \ubbf8\ub9cc\uc77c \ub54c)
+      if (container.scrollTop < 300 && hasMore && !loadingMore && messages.length > 0) {
         fetchMessages()
       }
     }
@@ -137,6 +146,15 @@ export default function ConversationView({
     container.addEventListener('scroll', handleScroll)
     return () => container.removeEventListener('scroll', handleScroll)
   }, [hasMore, loadingMore, messages.length, offset])
+
+  // 초기 메시지 로드 시 스크롤을 맨 아래로
+  useLayoutEffect(() => {
+    if (messages.length > 0 && messagesContainerRef.current && isFirstLoad) {
+      // 바로 스크롤 (이미지 크기가 고정되어 있으므로)
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
+      setIsFirstLoad(false)
+    }
+  }, [messages, isFirstLoad])
 
   const fetchMessages = async (customOffset?: number, isInitial: boolean = false) => {
     if (!conversationId || (loadingMore && !isInitial)) return
@@ -168,14 +186,6 @@ export default function ConversationView({
         
         if (isInitial) {
           setMessages(sortedData)
-          // 메시지가 렌더링된 후 스크롤을 바로 하단으로 이동
-          requestAnimationFrame(() => {
-            setTimeout(() => {
-              if (messagesContainerRef.current) {
-                messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
-              }
-            }, 0)
-          })
         } else {
           // 현재 스크롤 정보 저장
           const container = messagesContainerRef.current
@@ -231,9 +241,10 @@ export default function ConversationView({
       if (!messageContent) return
       setMessageText('') // 즉시 입력창 비우기
       
-      // Reset textarea height
+      // Reset textarea height and focus
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto'
+        textareaRef.current.focus()
       }
     }
     
@@ -414,12 +425,14 @@ export default function ConversationView({
           {message.attachments.map((attachment: any, idx: number) => {
             if (attachment.type === 'image') {
               return (
-                <img
-                  key={idx}
-                  src={attachment.payload?.url}
-                  alt="Image attachment"
-                  className="max-w-xs rounded-lg"
-                />
+                <div key={idx} className="relative w-48 h-48 bg-gray-100 rounded-lg overflow-hidden">
+                  <img
+                    src={attachment.payload?.url}
+                    alt="Image attachment"
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
               )
             } else if (attachment.type === 'video') {
               return (
@@ -533,13 +546,66 @@ export default function ConversationView({
   return (
     <div className="h-full flex flex-col bg-white">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 bg-white">
-        <h3 className="text-base font-semibold text-gray-900">
-          {customerName || customerId || 'Unknown User'}
-        </h3>
-        <p className="text-xs text-gray-500">
-          Instagram Direct Message
-        </p>
+      <div className="px-6 py-4 border-b border-gray-200 bg-white flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">
+            {customerName || customerId || 'Unknown User'}
+          </h3>
+          <p className="text-xs text-gray-500">
+            Instagram Direct Message
+          </p>
+        </div>
+        <button
+          onClick={async () => {
+            if (!conversationId || isCompleting) return
+            
+            const newStatus = currentStatus === 'completed' ? 'in_progress' : 'completed'
+            
+            setIsCompleting(true)
+            try {
+              const response = await fetch(`/api/conversations/${conversationId}/status`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ status: newStatus })
+              })
+              
+              if (response.ok) {
+                setCurrentStatus(newStatus)
+                console.log(`상태가 ${newStatus}로 변경됨`)
+                // 부모 컴포넌트에 상태 변경 알림
+                if (onStatusChange) {
+                  onStatusChange(newStatus)
+                }
+              } else {
+                console.error('상태 업데이트 실패')
+                alert('상태 업데이트에 실패했습니다.')
+              }
+            } catch (error) {
+              console.error('Error updating status:', error)
+              alert('상태 업데이트 중 오류가 발생했습니다.')
+            } finally {
+              setIsCompleting(false)
+            }
+          }}
+          disabled={isCompleting}
+          className={`px-4 py-2 text-xs font-medium rounded-lg transition-colors ${
+            isCompleting
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : currentStatus === 'completed'
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-green-600 text-white hover:bg-green-700'
+          }`}
+        >
+          {
+            isCompleting 
+              ? '처리 중...' 
+              : currentStatus === 'completed' 
+                ? '상담 재시작'
+                : '상담 완료'
+          }
+        </button>
       </div>
 
       {/* Messages */}
@@ -591,8 +657,8 @@ export default function ConversationView({
                     ((msg.sender_id === businessAccountId || msg.is_echo) === (nextMessage.sender_id === businessAccountId || nextMessage.is_echo))
                   
                   return (
+                    <Fragment key={msg.optimisticId || msg.id}>
                     <div
-                      key={msg.optimisticId || msg.id}
                       className={`flex ${isBusinessMessage ? 'justify-end' : 'justify-start'} ${isSameMinuteAsNext ? 'mb-1' : 'mb-3'} group`}
                     >
                       <div className={`flex ${isBusinessMessage ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 max-w-xs lg:max-w-md`}>
@@ -639,6 +705,7 @@ export default function ConversationView({
                         )}
                       </div>
                     </div>
+                    </Fragment>
                   )
                 })}
               </div>
@@ -684,9 +751,10 @@ export default function ConversationView({
           <button
             onClick={() => {
               sendMessage()
-              // Reset textarea height after sending
+              // Reset textarea height and focus after sending
               if (textareaRef.current) {
                 textareaRef.current.style.height = 'auto'
+                textareaRef.current.focus()
               }
             }}
             disabled={!customerId || !messageText.trim()}

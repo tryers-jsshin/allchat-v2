@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 interface UserProfile {
@@ -47,17 +47,25 @@ export default function ConversationsList({
 }: ConversationsListProps) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState<string>('active')
+  const [statusFilter, setStatusFilter] = useState<string>('in_progress')
   const [statusCounts, setStatusCounts] = useState({
-    active: 0,
+    in_progress: 0,
     all: 0,
     completed: 0
   })
+  
+  // statusFilter의 최신 값을 유지하기 위한 ref
+  const statusFilterRef = useRef(statusFilter)
 
+  // statusFilter 변경 시 데이터 다시 가져오기
   useEffect(() => {
+    statusFilterRef.current = statusFilter  // ref 업데이트
     fetchConversations()
-    
-    // Realtime subscription
+    fetchStatusCounts()
+  }, [statusFilter])
+
+  // Realtime subscription - statusFilter와 독립적으로 설정
+  useEffect(() => {
     const channel = supabase
       .channel('instagram-conversations-channel')
       .on(
@@ -127,20 +135,65 @@ export default function ConversationsList({
               })
             }
           } else if (payload.eventType === 'UPDATE') {
-            // 기존 대화 업데이트 시 시간순 재정렬
+            // 기존 대화 업데이트 시 - 단순하게 처리
             const updatedConversation = payload.new as Conversation
+            
             setConversations(prev => {
-              const updated = prev.map(conv => 
-                conv.conversation_id === updatedConversation.conversation_id 
-                  ? { ...conv, ...updatedConversation, customer_profile: conv.customer_profile }
-                  : conv
-              )
-              // 최신 메시지 시간 기준으로 재정렬
-              return updated.sort((a, b) => 
-                new Date(b.last_message_at || b.updated_at).getTime() - 
-                new Date(a.last_message_at || a.updated_at).getTime()
-              )
+              const existingIndex = prev.findIndex(c => c.conversation_id === updatedConversation.conversation_id)
+              const existingConv = existingIndex >= 0 ? prev[existingIndex] : null
+              
+              // status가 undefined인 경우 기존 status 사용
+              const currentStatus = updatedConversation.status || existingConv?.status
+              const oldStatus = existingConv?.status
+              
+              // 상태가 실제로 변경되었는지 확인
+              if (oldStatus && currentStatus && oldStatus !== currentStatus) {
+                // DB에서 정확한 카운트 가져오기
+                fetchStatusCounts()
+              }
+              
+              // 현재 필터에 표시되어야 하는가? (ref에서 최신 값 사용)
+              const shouldBeVisible = 
+                statusFilterRef.current === 'all' ||
+                (statusFilterRef.current === 'in_progress' && currentStatus === 'in_progress') ||
+                (statusFilterRef.current === 'completed' && currentStatus === 'completed')
+              
+              if (shouldBeVisible) {
+                // 보여야 하는 경우
+                if (existingIndex >= 0) {
+                  // 기존에 있던 대화 업데이트
+                  const updated = [...prev]
+                  updated[existingIndex] = {
+                    ...prev[existingIndex],
+                    status: updatedConversation.status || prev[existingIndex].status,  // status도 기존 값 유지
+                    unread_count: updatedConversation.unread_count ?? prev[existingIndex].unread_count,
+                    last_message_at: updatedConversation.last_message_at || prev[existingIndex].last_message_at,
+                    last_message_text: updatedConversation.last_message_text || prev[existingIndex].last_message_text,
+                    last_message_type: updatedConversation.last_message_type || prev[existingIndex].last_message_type,
+                    last_sender_id: updatedConversation.last_sender_id || prev[existingIndex].last_sender_id,
+                    updated_at: updatedConversation.updated_at || prev[existingIndex].updated_at
+                  }
+                  // 시간순 정렬
+                  return updated.sort((a, b) => 
+                    new Date(b.last_message_at || b.updated_at).getTime() - 
+                    new Date(a.last_message_at || a.updated_at).getTime()
+                  )
+                } else {
+                  // 새로 추가되어야 하는 경우 (예: 완료→진행중으로 변경되어 진행중 탭에 나타나야 함)
+                  // 프로필 정보가 필요하므로 전체 리스트 다시 불러오기
+                  fetchConversations()
+                  return prev
+                }
+              } else {
+                // 보이지 않아야 하는 경우 - 제거
+                if (existingIndex >= 0) {
+                  return prev.filter((_, index) => index !== existingIndex)
+                }
+                return prev
+              }
             })
+            
+            // 상태 카운트는 필요시 업데이트 (탭 전환 시 자동으로 가져옴)
           }
         }
       )
@@ -149,7 +202,7 @@ export default function ConversationsList({
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [statusFilter])
+  }, []) // 빈 dependency로 한 번만 설정
 
   const fetchConversations = async () => {
     try {
@@ -163,18 +216,6 @@ export default function ConversationsList({
           new Date(a.last_message_at || a.updated_at).getTime()
         )
         setConversations(sortedData)
-        
-        // 전체 대화방 수 계산 (필터와 상관없이 전체 데이터 필요)
-        if (statusFilter !== 'all') {
-          // 전체 카운트를 위해 별도 요청
-          const allResponse = await fetch('/api/conversations?status=all')
-          if (allResponse.ok) {
-            const allData = await allResponse.json()
-            calculateStatusCounts(allData)
-          }
-        } else {
-          calculateStatusCounts(data)
-        }
       }
     } catch (error) {
       console.error('Failed to fetch conversations:', error)
@@ -183,23 +224,22 @@ export default function ConversationsList({
     }
   }
 
-  const calculateStatusCounts = (allConversations: Conversation[]) => {
-    const counts = {
-      active: 0,
-      all: allConversations.length,
-      completed: 0
-    }
-    
-    allConversations.forEach(conv => {
-      if (conv.status === 'pending' || conv.status === 'in_progress') {
-        counts.active++
-      } else if (conv.status === 'completed') {
-        counts.completed++
+  const fetchStatusCounts = async () => {
+    try {
+      const response = await fetch('/api/conversations/status-counts')
+      if (response.ok) {
+        const counts = await response.json()
+        setStatusCounts({
+          in_progress: counts.in_progress || counts.active || counts.pending || 0,  // active와 pending을 in_progress로 매핑
+          all: counts.all || 0,
+          completed: counts.completed || 0
+        })
       }
-    })
-    
-    setStatusCounts(counts)
+    } catch (error) {
+      console.error('Failed to fetch status counts:', error)
+    }
   }
+
 
   const formatTime = (dateString?: string) => {
     if (!dateString) return ''
@@ -240,15 +280,15 @@ export default function ConversationsList({
         {/* Status Filter */}
         <div className="bg-gray-100 rounded-lg p-1 flex gap-1">
           <button
-            onClick={() => setStatusFilter('active')}
+            onClick={() => setStatusFilter('in_progress')}
             className={`flex-1 px-4 py-1.5 rounded-md text-sm font-medium transition-all relative ${
-              statusFilter === 'active'
+              statusFilter === 'in_progress'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             진행 중
-            <span className="ml-1.5 text-orange-500 font-semibold">{statusCounts.active}</span>
+            <span className="ml-1.5 text-orange-500 font-semibold">{statusCounts.in_progress}</span>
           </button>
           <button
             onClick={() => setStatusFilter('all')}

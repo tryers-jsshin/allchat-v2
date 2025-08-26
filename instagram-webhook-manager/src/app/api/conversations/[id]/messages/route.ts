@@ -27,12 +27,13 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid conversation ID format' }, { status: 400 })
     }
 
-    // 해당 대화의 최신 메시지부터 조회 (read 타입 제외)
+    // 해당 대화의 최신 메시지부터 조회 (read, reaction 타입 제외)
     const { data: messages, error } = await supabase
       .from('instagram_webhooks')
       .select('*')
       .or(`and(sender_id.eq.${participant1},recipient_id.eq.${participant2}),and(sender_id.eq.${participant2},recipient_id.eq.${participant1})`)
       .neq('webhook_type', 'read')  // read 타입 메시지 제외
+      .neq('webhook_type', 'reaction')  // reaction 타입 메시지도 제외
       .order('message_timestamp', { ascending: false })
       .limit(limit)
       .range(offset, offset + limit - 1)
@@ -42,7 +43,7 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
     }
 
-    // 대화방의 읽지 않은 메시지 수를 0으로 리셋 (선택적)
+    // 대화방의 읽지 않은 메시지 수를 0으로 리셋
     await supabase
       .from('instagram_conversations')
       .update({ unread_count: 0 })

@@ -10,6 +10,8 @@ interface Conversation {
   conversation_id: string
   business_account_id: string
   customer_id: string
+  unread_count: number
+  status?: string
   customer_profile?: {
     name?: string
     username?: string
@@ -18,6 +20,13 @@ interface Conversation {
 
 export default function ConversationsPage() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
+
+  const handleStatusChange = (newStatus: string) => {
+    // 상담 완료 시 채팅창 닫기
+    if (newStatus === 'completed') {
+      setSelectedConversation(null)
+    }
+  }
 
   return (
     <div className="h-screen flex bg-gray-50">
@@ -35,10 +44,12 @@ export default function ConversationsPage() {
           conversationId={selectedConversation?.conversation_id}
           businessAccountId={selectedConversation?.business_account_id}
           customerId={selectedConversation?.customer_id}
+          status={selectedConversation?.status}
           customerName={
             selectedConversation?.customer_profile?.name || 
             selectedConversation?.customer_profile?.username
           }
+          onStatusChange={handleStatusChange}
         />
       </div>
 
