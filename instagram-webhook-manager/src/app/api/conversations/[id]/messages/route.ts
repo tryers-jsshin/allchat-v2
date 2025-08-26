@@ -44,7 +44,7 @@ export async function GET(
 
     // 대화방의 읽지 않은 메시지 수를 0으로 리셋 (선택적)
     await supabase
-      .from('conversations')
+      .from('instagram_conversations')
       .update({ unread_count: 0 })
       .eq('conversation_id', conversation_id)
 

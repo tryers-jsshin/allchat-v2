@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
     // 대화방 목록 조회 쿼리 (외래 키 없이 별도로 프로필 조회)
     let query = supabase
-      .from('conversations')
+      .from('instagram_conversations')
       .select('*')
       .order('last_message_at', { ascending: false })
       .limit(limit)
@@ -89,7 +89,7 @@ export async function PATCH(request: NextRequest) {
     if (priority !== undefined) updateData.priority = priority
 
     const { data, error } = await supabase
-      .from('conversations')
+      .from('instagram_conversations')
       .update(updateData)
       .eq('conversation_id', conversation_id)
       .select()

@@ -59,13 +59,13 @@ export default function ConversationsList({
     
     // Realtime subscription
     const channel = supabase
-      .channel('conversations-channel')
+      .channel('instagram-conversations-channel')
       .on(
         'postgres_changes',
         { 
           event: '*', 
           schema: 'public', 
-          table: 'conversations' 
+          table: 'instagram_conversations' 
         },
         async (payload) => {
           console.log('Conversation update:', payload)
