@@ -29,18 +29,28 @@ export default function ConversationsPage() {
   }
 
   return (
-    <div className="h-screen flex bg-gray-50">
-      {/* Customer Messages - Left Panel */}
-      <div className="w-1/4 min-w-[280px] max-w-[350px] border-r border-gray-200">
+    <div className="h-screen flex flex-col bg-gray-50">
+      {/* Header */}
+      <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold">AllChat</h1>
+          <span className="text-sm text-gray-500">통합 메신저 상담 관리 시스템</span>
+        </div>
+      </header>
+      
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Customer Messages - Left Panel */}
+        <div className="w-1/4 min-w-[280px] max-w-[350px] border-r border-gray-200">
         <ConversationsList
           onSelectConversation={setSelectedConversation}
           selectedConversationId={selectedConversation?.conversation_id}
         />
       </div>
 
-      {/* Chat View - Center Panel */}
-      <div className="flex-1 min-w-[400px]">
-        <ConversationView
+        {/* Chat View - Center Panel */}
+        <div className="flex-1 min-w-[400px]">
+          <ConversationView
           conversationId={selectedConversation?.conversation_id}
           businessAccountId={selectedConversation?.business_account_id}
           customerId={selectedConversation?.customer_id}
@@ -49,20 +59,21 @@ export default function ConversationsPage() {
             selectedConversation?.customer_profile?.name || 
             selectedConversation?.customer_profile?.username
           }
-          onStatusChange={handleStatusChange}
-        />
-      </div>
+            onStatusChange={handleStatusChange}
+          />
+        </div>
 
-      {/* Consultation Assistant - Right Panel */}
-      <div className="w-1/4 min-w-[280px] max-w-[350px] border-l border-gray-200">
-        <ConsultationAssistant
-          conversationId={selectedConversation?.conversation_id}
-          customerId={selectedConversation?.customer_id}
-          customerName={
-            selectedConversation?.customer_profile?.name || 
-            selectedConversation?.customer_profile?.username
-          }
-        />
+        {/* Consultation Assistant - Right Panel */}
+        <div className="w-1/4 min-w-[280px] max-w-[350px] border-l border-gray-200">
+          <ConsultationAssistant
+            conversationId={selectedConversation?.conversation_id}
+            customerId={selectedConversation?.customer_id}
+            customerName={
+              selectedConversation?.customer_profile?.name || 
+              selectedConversation?.customer_profile?.username
+            }
+          />
+        </div>
       </div>
     </div>
   )

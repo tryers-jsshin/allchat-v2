@@ -97,7 +97,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
             type="text"
             value={recipientId}
             onChange={(e) => setRecipientId(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            className="w-full px-3 py-2 border border-gray-200 rounded-md"
             placeholder="Instagram Scoped ID"
             required
           />
@@ -111,7 +111,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
           <select
             value={messageType}
             onChange={(e) => setMessageType(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md"
+            className="w-full px-3 py-2 border border-gray-200 rounded-md"
           >
             <option value="text">Text</option>
             <option value="image">Image</option>
@@ -133,7 +133,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-200 rounded-md"
               rows={3}
               placeholder="Enter your message..."
               required
@@ -150,7 +150,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
               type="url"
               value={mediaUrl}
               onChange={(e) => setMediaUrl(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-200 rounded-md"
               placeholder="https://example.com/media.jpg"
               required
             />
@@ -172,7 +172,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
                 type="text"
                 value={messageId}
                 onChange={(e) => setMessageId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md"
                 placeholder="Message ID"
                 required
               />
@@ -184,7 +184,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
               <select
                 value={reaction}
                 onChange={(e) => setReaction(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md"
               >
                 <option value="love">❤️ Love</option>
                 <option value="wow">😮 Wow</option>
@@ -206,7 +206,7 @@ export default function MessageSender({ recipientId: defaultRecipientId, onMessa
               type="text"
               value={postId}
               onChange={(e) => setPostId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              className="w-full px-3 py-2 border border-gray-200 rounded-md"
               placeholder="Instagram Post ID"
               required
             />

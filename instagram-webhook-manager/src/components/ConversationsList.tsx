@@ -272,7 +272,7 @@ export default function ConversationsList({
   }
 
   return (
-    <div className="h-full flex flex-col bg-white border-r border-gray-200">
+    <div className="h-full flex flex-col bg-white">
       {/* Header */}
       <div className="p-4 border-b border-gray-200">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">고객 메시지</h2>
@@ -281,36 +281,36 @@ export default function ConversationsList({
         <div className="bg-gray-100 rounded-lg p-1 flex gap-1">
           <button
             onClick={() => setStatusFilter('in_progress')}
-            className={`flex-1 px-4 py-1.5 rounded-md text-sm font-medium transition-all relative ${
+            className={`flex-1 px-4 py-1.5 rounded-md text-xs font-medium transition-all relative ${
               statusFilter === 'in_progress'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             진행 중
-            <span className="ml-1.5 text-orange-500 font-semibold">{statusCounts.in_progress}</span>
+            <span className="ml-1 text-orange-500 font-semibold">{statusCounts.in_progress}</span>
           </button>
           <button
             onClick={() => setStatusFilter('all')}
-            className={`flex-1 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+            className={`flex-1 px-4 py-1.5 rounded-md text-xs font-medium transition-all ${
               statusFilter === 'all'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             전체
-            <span className="ml-1.5 text-gray-500 font-semibold">{statusCounts.all}</span>
+            <span className="ml-1 text-gray-500 font-semibold">{statusCounts.all}</span>
           </button>
           <button
             onClick={() => setStatusFilter('completed')}
-            className={`flex-1 px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+            className={`flex-1 px-4 py-1.5 rounded-md text-xs font-medium transition-all ${
               statusFilter === 'completed'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             완료
-            <span className="ml-1.5 text-gray-500 font-semibold">{statusCounts.completed}</span>
+            <span className="ml-1 text-gray-500 font-semibold">{statusCounts.completed}</span>
           </button>
         </div>
       </div>
@@ -319,7 +319,7 @@ export default function ConversationsList({
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div className="flex justify-center items-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
         ) : conversations.length === 0 ? (
           <div className="p-4 text-center text-gray-500">
@@ -330,27 +330,27 @@ export default function ConversationsList({
             <div
               key={conversation.id}
               onClick={() => onSelectConversation(conversation)}
-              className={`p-4 border-b border-gray-100 border-l-4 hover:bg-gray-50 cursor-pointer transition-colors ${
+              className={`h-20 px-4 py-3 border-b border-gray-200 border-l-2 hover:bg-gray-50 cursor-pointer transition-colors ${
                 selectedConversationId === conversation.conversation_id
-                  ? 'bg-blue-50 border-l-blue-600'
+                  ? 'bg-blue-50 border-l-blue-500'
                   : 'border-l-transparent'
               }`}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 h-full">
                 {/* Profile Picture */}
                 <div className="flex-shrink-0">
                   {conversation.customer_profile?.profile_pic ? (
                     <img
                       src={conversation.customer_profile.profile_pic}
                       alt={conversation.customer_profile.username || 'Profile'}
-                      className="w-12 h-12 rounded-full object-cover"
+                      className="w-10 h-10 rounded-full object-cover"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement
                         target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGZpbGw9Im5vbmUiIHZpZXdCb3g9IjAgMCAyNCAyNCIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZT0iY3VycmVudENvbG9yIiBjbGFzcz0idz02IGgtNiI+CiAgPHBhdGggc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBkPSJNMTUuNzUgNmE0LjUgNC41IDAgMTEtOSAwIDQuNSA0LjUgMCAwMTkgMHpNNC41MDEgMjAuMTE4YTcuNSA3LjUgMCAwMTE0Ljk5OCAwQTE3LjkzMyAxNy45MzMgMCAwMTEyIDIxLjc1Yy0yLjY3NiAwLTUuMjE2LS41ODQtNy40OTktMS42MzJ6IiAvPgo8L3N2Zz4='
                       }}
                     />
                   ) : (
-                    <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
                       <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                       </svg>
@@ -358,11 +358,11 @@ export default function ConversationsList({
                   )}
                 </div>
 
-                {/* Conversation Info - Center */}
+                {/* Conversation Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 truncate">
+                      <p className="text-sm font-medium text-gray-900 truncate">
                         {conversation.customer_profile?.name || 
                          conversation.customer_profile?.username || 
                          conversation.customer_id}
@@ -383,15 +383,30 @@ export default function ConversationsList({
                       {formatTime(conversation.last_message_at)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-gray-600 truncate flex-1">
+                  
+                  {/* 하단 줄: 메시지 내용 | 뱃지 */}
+                  <div className="flex items-start justify-between gap-2">
+                    <p 
+                      className="text-xs text-gray-600 flex-1 overflow-hidden"
+                      style={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        wordBreak: 'break-word',
+                        whiteSpace: 'pre-wrap',
+                        textOverflow: 'ellipsis',
+                        lineHeight: '1.3'
+                      }}
+                    >
                       {conversation.last_message_text || '메시지 없음'}
                     </p>
-                    {conversation.unread_count > 0 && (
-                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full ml-2 flex-shrink-0">
-                        {conversation.unread_count > 99 ? '99+' : conversation.unread_count}
-                      </span>
-                    )}
+                    <div className="min-w-[18px] flex-shrink-0 -mt-0.5">
+                      {conversation.unread_count > 0 && (
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                          {conversation.unread_count > 99 ? '99+' : conversation.unread_count}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

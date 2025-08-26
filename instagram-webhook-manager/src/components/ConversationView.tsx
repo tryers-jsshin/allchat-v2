@@ -612,7 +612,7 @@ export default function ConversationView({
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-4">
         {loading ? (
           <div className="flex justify-center items-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
         ) : messages.length === 0 ? (
           <div className="text-center text-gray-500">
@@ -623,7 +623,7 @@ export default function ConversationView({
             {/* 이전 메시지 로딩 표시 */}
             {loadingMore && (
               <div className="flex justify-center py-2">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
               </div>
             )}
             
@@ -716,11 +716,11 @@ export default function ConversationView({
       </div>
 
       {/* Message Input */}
-      <div className="px-6 py-4 border-t border-gray-200 bg-white">
-        <div className="flex items-end gap-2">
+      <div className="px-4 py-3 border-t border-gray-200 bg-white">
+        <div className="flex items-center gap-2">
           {/* File Attachment Button */}
           <button
-            className="p-1.5 text-gray-500 hover:text-gray-700 transition-colors"
+            className="p-2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
             title="파일 첨부 (준비 중)"
             disabled
           >
@@ -735,14 +735,14 @@ export default function ConversationView({
             value={messageText}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyPress}
-            placeholder={customerId ? "메시지를 입력하세요... (Enter로 줄바꿈)" : "대화를 선택하세요"}
+            placeholder={customerId ? "메시지 입력..." : "대화를 선택하세요"}
             disabled={!customerId}
             rows={1}
-            className={`flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded-lg resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+            className={`flex-1 px-4 py-2 text-xs border border-gray-300 rounded-2xl resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               !customerId ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
             }`}
             style={{
-              minHeight: '32px',
+              minHeight: '36px',
               maxHeight: '60px', // Approximately 3 lines
             }}
           />
@@ -758,13 +758,16 @@ export default function ConversationView({
               }
             }}
             disabled={!customerId || !messageText.trim()}
-            className={`px-4 py-1.5 text-xs rounded-full font-medium transition-colors ${
+            className={`p-2 rounded-full transition-colors ${
               !customerId || !messageText.trim()
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-blue-500 text-white hover:bg-blue-600'
             }`}
+            title="전송"
           >
-            전송
+            <svg className="w-5 h-5 rotate-45" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
           </button>
         </div>
       </div>
