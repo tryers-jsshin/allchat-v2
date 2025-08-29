@@ -10,28 +10,29 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status')
-    const platform = searchParams.get('platform') || 'instagram' // 플랫폼 파라미터 추가
+    const platform = searchParams.get('platform') // 플랫폼 파라미터 (기본값 없음)
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
-    // 통합 테이블 사용: conversations_with_profiles view
+    // 통합 테이블 직접 사용 (뷰 제거)
     let query = supabase
-      .from('conversations_with_profiles')
+      .from('conversations')
       .select('*')
-      .eq('platform', platform) // 플랫폼 필터
       .order('last_message_at', { ascending: false })
       .limit(limit)
       .range(offset, offset + limit - 1)
 
-    // 상태 필터링
+    // platform 파라미터가 있을 때만 필터링
+    if (platform) {
+      query = query.eq('platform', platform)
+    }
+
+    // 상태 필터링 (in_progress, completed 2단계만 사용)
     if (status && status !== 'all') {
-      if (status === 'active' || status === 'pending' || status === 'in_progress') {
-        // active와 pending은 레거시 지원, in_progress가 정확한 명칭
+      if (status === 'in_progress') {
         query = query.eq('status', 'in_progress')
       } else if (status === 'completed') {
         query = query.eq('status', 'completed')
-      } else {
-        query = query.eq('status', status)
       }
     }
 
@@ -69,14 +70,18 @@ export async function GET(request: NextRequest) {
       // 플랫폼 정보 추가
       platform: conv.platform,
       
-      // 프로필 정보
-      customer_profile: conv.customer_name || conv.customer_username ? {
+      // 메시징 윈도우 만료 시간 추가
+      messaging_window_expires_at: conv.messaging_window_expires_at,
+      messaging_window_type: conv.messaging_window_type,
+      
+      // 프로필 정보 (conversations 테이블에서 직접)
+      customer_profile: conv.customer_name ? {
         igsid: conv.customer_id,
         name: conv.customer_name,
-        username: conv.customer_username,
+        username: conv.platform_data?.username || null,  // platform_data에서 가져오기
         profile_pic: conv.customer_profile_pic,
         is_verified_user: conv.customer_is_verified,
-        follower_count: conv.customer_platform_data?.follower_count
+        follower_count: conv.platform_data?.follower_count || null
       } : null,
       total_messages: conv.message_count || 0
     }))
@@ -101,15 +106,23 @@ export async function PATCH(request: NextRequest) {
     const updateData: any = { updated_at: new Date().toISOString() }
     
     if (status !== undefined) updateData.status = status
-    if (assigned_to !== undefined) updateData.assigned_to = assigned_to
-    if (notes !== undefined) updateData.notes = notes
-    if (tags !== undefined) updateData.tags = tags
-    if (priority !== undefined) updateData.priority = priority
+    
+    // platform_data 내의 필드들은 JSONB로 업데이트
+    const platformDataUpdates: any = {}
+    if (assigned_to !== undefined) platformDataUpdates.assigned_to = assigned_to
+    if (notes !== undefined) platformDataUpdates.notes = notes
+    if (tags !== undefined) platformDataUpdates.tags = tags
+    if (priority !== undefined) platformDataUpdates.priority = priority
+    
+    // platform_data가 있으면 병합
+    if (Object.keys(platformDataUpdates).length > 0) {
+      updateData.platform_data = platformDataUpdates
+    }
 
     const { data, error } = await supabase
-      .from('instagram_conversations')
+      .from('conversations')
       .update(updateData)
-      .eq('conversation_id', conversation_id)
+      .eq('platform_conversation_id', conversation_id)
       .select()
       .single()
 

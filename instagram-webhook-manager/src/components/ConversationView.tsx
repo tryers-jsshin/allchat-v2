@@ -10,11 +10,14 @@ interface ConversationViewProps {
   customerName?: string
   status?: string
   onStatusChange?: (newStatus: string) => void
+  platform?: string  // 플랫폼 추가
+  messagingWindowExpiresAt?: string  // 메시징 윈도우 만료 시간
 }
 
 interface OptimisticMessage extends WebhookRecord {
   optimisticId?: string
   status?: 'pending' | 'sent' | 'failed'
+  failureReason?: 'MESSAGING_WINDOW_EXPIRED' | 'GENERAL_ERROR'
 }
 
 
@@ -24,7 +27,9 @@ export default function ConversationView({
   customerId,
   customerName,
   status = 'pending',
-  onStatusChange
+  onStatusChange,
+  platform = 'instagram',
+  messagingWindowExpiresAt
 }: ConversationViewProps) {
   const [messages, setMessages] = useState<OptimisticMessage[]>([])
   const [loading, setLoading] = useState(false)
@@ -35,13 +40,58 @@ export default function ConversationView({
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isCompleting, setIsCompleting] = useState(false)
   const [currentStatus, setCurrentStatus] = useState(status)
+  const [currentMessagingWindowExpiresAt, setCurrentMessagingWindowExpiresAt] = useState(messagingWindowExpiresAt)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  
+  // 메시징 윈도우 상태 계산
+  const messagingWindowStatus = useMemo(() => {
+    // LINE은 메시징 윈도우 제한 없음
+    if (platform === 'line') {
+      return { canSend: true, reason: '제한 없음' }
+    }
+    
+    // Instagram만 메시징 윈도우 체크
+    if (!currentMessagingWindowExpiresAt) {
+      // NULL인 경우에도 전송 허용
+      return { canSend: true, reason: '메시지 전송 가능' }
+    }
+    
+    const expiresAt = new Date(currentMessagingWindowExpiresAt)
+    const now = new Date()
+    const canSend = expiresAt > now
+    
+    if (!canSend) {
+      return { 
+        canSend: false, 
+        expiresAt,
+        reason: '24시간 메시징 윈도우가 만료됨'
+      }
+    }
+    
+    // 남은 시간 계산 (24시간 기준이므로 시간 단위로 표시)
+    const hoursRemaining = Math.floor((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60))
+    const minutesRemaining = Math.floor((expiresAt.getTime() - now.getTime()) / (1000 * 60)) % 60
+    
+    return {
+      canSend: true,
+      expiresAt,
+      hoursRemaining,
+      minutesRemaining,
+      reason: hoursRemaining > 0 ? `${hoursRemaining}시간 남음` : `${minutesRemaining}분 남음`
+    }
+  }, [currentMessagingWindowExpiresAt, platform])
 
   useEffect(() => {
     if (conversationId) {
-      // 대화가 바뀌면 상태 초기화
+      // 이전 fetch 요청 취소
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      
+      // 항상 새로 로드 (캐시 제거)
       setMessages([])
       setOffset(0)
       setHasMore(true)
@@ -49,87 +99,164 @@ export default function ConversationView({
       setCurrentStatus(status)
       fetchMessages(0, true)
       
-      // Realtime subscription for new messages
-      const [participant1, participant2] = conversationId.split('_')
+      // 통합 messages 테이블 실시간 구독 설정
+      let channel: any
       
-      console.log('Setting up realtime subscription for:', {
-        conversationId,
-        participant1,
-        participant2
-      })
-      
-      // 더 간단한 구독 방식 - 필터 없이 모든 INSERT 받고 클라이언트에서 필터링
-      const channel = supabase
-        .channel(`messages-${conversationId}`)
-        .on(
-          'postgres_changes',
-          { 
-            event: 'INSERT', 
-            schema: 'public', 
-            table: 'instagram_webhooks'
-          },
-          (payload) => {
-            console.log('🔔 New webhook received:', payload)
-            const newMessage = payload.new as WebhookRecord
-            
-            // 클라이언트 측에서 필터링 (read 타입 제외)
-            if (newMessage.webhook_type === 'read') {
-              console.log('⏭️ Skipping read webhook')
-              return
+      // async 함수로 래핑하여 conversation ID 가져오기
+      const setupRealtimeSubscription = async () => {
+        // conversations 테이블에서 실제 conversation ID와 최신 messaging_window_expires_at 가져오기
+        const { data: conversationData } = await supabase
+          .from('conversations')
+          .select('id, messaging_window_expires_at')
+          .eq('platform_conversation_id', conversationId)
+          .single()
+        
+        let conversationsChannel
+        
+        if (conversationData) {
+        // 최신 messaging_window_expires_at 값으로 state 업데이트
+        if (conversationData.messaging_window_expires_at) {
+          setCurrentMessagingWindowExpiresAt(conversationData.messaging_window_expires_at)
+        }
+        
+        console.log('Setting up messages realtime subscription for:', {
+          conversationId: conversationData.id,
+          platform,
+          platform_conversation_id: conversationId
+        })
+        
+        // conversations 테이블 구독 (messaging_window_expires_at 업데이트 감지)
+        conversationsChannel = supabase
+          .channel(`conversation-${conversationData.id}`)
+          .on(
+            'postgres_changes',
+            { 
+              event: 'UPDATE', 
+              schema: 'public', 
+              table: 'conversations',
+              filter: `id=eq.${conversationData.id}`
+            },
+            (payload: any) => {
+              console.log('📊 Conversation updated:', payload)
+              if (payload.new?.messaging_window_expires_at !== undefined) {
+                console.log('⏰ Messaging window updated:', payload.new.messaging_window_expires_at)
+                setCurrentMessagingWindowExpiresAt(payload.new.messaging_window_expires_at)
+              }
             }
-            
-            const isRelevant = 
-              (newMessage.sender_id === participant1 && newMessage.recipient_id === participant2) ||
-              (newMessage.sender_id === participant2 && newMessage.recipient_id === participant1)
-            
-            if (isRelevant) {
-              console.log('✅ Message is relevant to this conversation')
+          )
+          .subscribe()
+        
+        // 통합 messages 테이블 구독 (INSERT와 UPDATE 모두)
+        channel = supabase
+          .channel(`messages-${conversationData.id}`)
+          .on(
+            'postgres_changes',
+            { 
+              event: '*',  // INSERT와 UPDATE 모두 구독
+              schema: 'public', 
+              table: 'messages',
+              filter: `conversation_id=eq.${conversationData.id}`
+            },
+            (payload) => {
+              console.log(`🔔 Message event (${payload.eventType}):`, payload)
+              const newMessage = payload.new as any
               
-              // echo 메시지인 경우 낙관적 메시지를 대체
-              if (newMessage.is_echo) {
-                setMessages(prev => {
-                  // 같은 텍스트의 낙관적 메시지 찾기 (pending 또는 sent 상태)
-                  const optimisticIndex = prev.findIndex(msg => 
-                    msg.optimisticId && // 낙관적 메시지인지 확인
-                    (msg.status === 'pending' || msg.status === 'sent') &&
-                    msg.message_text === newMessage.message_text &&
-                    msg.sender_id === newMessage.sender_id
-                  )
-                  
-                  if (optimisticIndex !== -1) {
-                    // 낙관적 메시지를 실제 메시지로 대체
-                    const newMessages = [...prev]
-                    newMessages[optimisticIndex] = newMessage
-                    return newMessages
-                  }
-                  // 매칭되는 낙관적 메시지가 없으면 추가하지 않음 (중복 방지)
-                  console.warn('Echo message received but no matching optimistic message found:', newMessage)
-                  return prev
-                })
-              } else {
-                // 일반 메시지는 그냥 추가
-                setMessages(prev => [...prev, newMessage])
+              // messages 테이블 형식을 프론트엔드 형식으로 변환
+              const convertedMessage: OptimisticMessage = {
+                id: newMessage.id,
+                webhook_type: 'message',
+                message_id: newMessage.original_message_id,
+                message_text: newMessage.message_text,
+                message_timestamp: new Date(newMessage.message_timestamp).getTime(),
+                sender_id: newMessage.sender_id,
+                recipient_id: newMessage.recipient_id,
+                is_echo: newMessage.sender_type === 'business',
+                attachments: newMessage.attachments,
+                created_at: newMessage.created_at,
+                raw_data: {
+                  platform: newMessage.platform,
+                  sender_type: newMessage.sender_type,
+                  message_type: newMessage.message_type
+                }
               }
               
-              // 새 메시지가 추가되면 스크롤
-              setTimeout(() => {
-                scrollToBottom()
-              }, 50)
-            } else {
-              console.log('❌ Message not relevant to this conversation')
+              // UPDATE 이벤트 처리 (예: LINE 이미지 URL 추가)
+              if (payload.eventType === 'UPDATE') {
+                console.log('📝 Updating existing message:', newMessage.id)
+                setMessages(prev => prev.map(msg => 
+                  msg.id === newMessage.id ? convertedMessage : msg
+                ))
+              }
+              // INSERT 이벤트 처리 (새 메시지)
+              else if (payload.eventType === 'INSERT') {
+                // echo 메시지인 경우 낙관적 메시지를 대체
+                if (newMessage.sender_type === 'business') {
+                  setMessages(prev => {
+                    const optimisticIndex = prev.findIndex(msg => 
+                      msg.optimisticId &&
+                      (msg.status === 'pending' || msg.status === 'sent') &&
+                      msg.message_text === newMessage.message_text
+                    )
+                    
+                    if (optimisticIndex !== -1) {
+                      const newMessages = [...prev]
+                      newMessages[optimisticIndex] = convertedMessage
+                      return newMessages
+                    }
+                    // Optimistic 메시지를 찾지 못한 경우 그냥 추가
+                    return [...prev, convertedMessage]
+                  })
+                } else {
+                  // 고객 메시지는 그냥 추가
+                  setMessages(prev => [...prev, convertedMessage])
+                }
+                
+                setTimeout(() => {
+                  scrollToBottom()
+                }, 50)
+              }
             }
-          }
-        )
-        .subscribe((status) => {
-          console.log('Realtime subscription status:', status)
-        })
+          )
+          
+          // 구독 시작
+          channel.subscribe((status: any) => {
+            console.log('Realtime subscription status:', status)
+          })
+        } else {
+          console.warn('Could not find conversation ID for realtime subscription')
+        }
+        
+        return { messagesChannel: channel, conversationsChannel }
+      }
+      
+      // 비동기 함수 실행 및 cleanup
+      let cleanupChannels: any
+      setupRealtimeSubscription().then(channels => {
+        cleanupChannels = channels
+      })
 
       return () => {
-        console.log('Removing realtime channel')
-        supabase.removeChannel(channel)
+        // cleanup에서 캐시 저장 제거 (stale closure 문제 방지)
+        // 캐시는 별도의 useEffect에서 실시간으로 업데이트됨
+        
+        // fetch 요청 취소
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+        
+        console.log('Removing realtime channels')
+        if (cleanupChannels) {
+          if (cleanupChannels.messagesChannel) {
+            supabase.removeChannel(cleanupChannels.messagesChannel)
+          }
+          if (cleanupChannels.conversationsChannel) {
+            supabase.removeChannel(cleanupChannels.conversationsChannel)
+          }
+        }
       }
     }
-  }, [conversationId, status])
+  }, [conversationId, status, platform])
+
 
   // \uc0c1\ub2e8 \uc2a4\ud06c\ub864 \uac10\uc9c0\ub97c \uc704\ud55c useEffect
   useEffect(() => {
@@ -150,16 +277,19 @@ export default function ConversationView({
   // 초기 메시지 로드 시 스크롤을 맨 아래로
   useLayoutEffect(() => {
     if (messages.length > 0 && messagesContainerRef.current && isFirstLoad) {
-      // 바로 스크롤 (이미지 크기가 고정되어 있으므로)
+      // 바로 스크롤 (모든 미디어가 고정 높이로 레이아웃 shift 없음)
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
       setIsFirstLoad(false)
     }
   }, [messages, isFirstLoad])
-
+  
   const fetchMessages = async (customOffset?: number, isInitial: boolean = false) => {
     if (!conversationId || (loadingMore && !isInitial)) return
     
     const currentOffset = customOffset !== undefined ? customOffset : offset
+    
+    // 새로운 AbortController 생성
+    abortControllerRef.current = new AbortController()
     
     try {
       if (isInitial) {
@@ -168,7 +298,10 @@ export default function ConversationView({
         setLoadingMore(true)
       }
       
-      const response = await fetch(`/api/conversations/${conversationId}/messages?offset=${currentOffset}&limit=50`)
+      const response = await fetch(
+        `/api/conversations/${conversationId}/messages?offset=${currentOffset}&limit=50`,
+        { signal: abortControllerRef.current.signal }
+      )
       if (response.ok) {
         const data = await response.json()
         
@@ -217,7 +350,9 @@ export default function ConversationView({
         setOffset(currentOffset + data.length)
       }
     } catch (error) {
-      console.error('Failed to fetch messages:', error)
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error('Failed to fetch messages:', error)
+      }
     } finally {
       setLoading(false)
       setLoadingMore(false)
@@ -258,8 +393,8 @@ export default function ConversationView({
         id: optimisticId,
         optimisticId,
         webhook_type: 'message',
-        sender_id: businessAccountId,
-        recipient_id: customerId,
+        sender_id: platform === 'line' ? 'line_business_account' : businessAccountId,
+        recipient_id: platform === 'line' ? conversationId : customerId,
         message_text: messageContent,
         message_timestamp: Date.now(),
         is_echo: true,
@@ -283,20 +418,35 @@ export default function ConversationView({
     }
     
     try {
-      const response = await fetch('/api/messages/send', {
+      const response = await fetch('/api/messages/unified/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          platform: platform,  // 플랫폼 정보 추가
+          conversationId: conversationId,
           recipientId: customerId,
-          messageType: 'text',
-          content: messageContent
+          messageText: messageContent,
+          messageType: 'text'
         })
       })
 
       if (!response.ok) {
-        throw new Error(`전송 실패: ${(await response.json()).message || 'Unknown error'}`)
+        const errorData = await response.json()
+        
+        // 메시징 윈도우 만료 에러 처리
+        if (errorData.error_code === 'MESSAGING_WINDOW_EXPIRED') {
+          // 메시지 상태를 실패로 변경하고 만료 이유 저장
+          setMessages(prev => prev.map(msg => 
+            msg.optimisticId === optimisticId 
+              ? { ...msg, status: 'failed', failureReason: 'MESSAGING_WINDOW_EXPIRED' }
+              : msg
+          ))
+          return
+        }
+        
+        throw new Error(`전송 실패: ${errorData.error || 'Unknown error'}`)
       }
       
       // 성공 시 상태 업데이트 (나중에 echo 웹훅으로 대체됨)
@@ -305,12 +455,18 @@ export default function ConversationView({
           ? { ...msg, status: 'sent' }
           : msg
       ))
+      
+      // 답장 시 unread_count를 0으로 리셋
+      await supabase
+        .from('conversations')
+        .update({ unread_count: 0 })
+        .eq('platform_conversation_id', conversationId)
     } catch (error) {
       console.error('Send error:', error)
       // 실패 시 상태 업데이트
       setMessages(prev => prev.map(msg => 
         msg.optimisticId === optimisticId 
-          ? { ...msg, status: 'failed' }
+          ? { ...msg, status: 'failed', failureReason: 'GENERAL_ERROR' }
           : msg
       ))
     }
@@ -409,6 +565,16 @@ export default function ConversationView({
   }
 
   const renderMessageContent = (message: WebhookRecord) => {
+    // LINE 스티커 메시지 체크 (message_type이 'sticker'인 경우)
+    if (message.raw_data?.message_type === 'sticker' || 
+        (message.raw_data?.platform === 'line' && message.attachments?.[0]?.type === 'sticker')) {
+      return (
+        <p className="text-xs italic text-gray-500">
+          스티커를 보냈습니다.
+        </p>
+      )
+    }
+    
     // 텍스트 메시지
     if (message.message_text) {
       return (
@@ -419,38 +585,222 @@ export default function ConversationView({
     }
 
     // 첨부파일
-    if (message.attachments && message.attachments.length > 0) {
+    if (message.attachments) {
+      // attachments가 배열이 아닐 수도 있으므로 배열로 변환
+      const attachmentsArray = Array.isArray(message.attachments) 
+        ? message.attachments 
+        : [message.attachments];
+      
       return (
         <div className="space-y-2">
-          {message.attachments.map((attachment: any, idx: number) => {
+          {attachmentsArray.map((attachment: any, idx: number) => {
             if (attachment.type === 'image') {
-              return (
-                <div key={idx} className="relative w-48 h-48 bg-gray-100 rounded-lg overflow-hidden">
+              // LINE 이미지 처리
+              if (attachment.contentProvider?.type === 'line') {
+                // 다운로드 완료되어 URL이 있는 경우
+                if (attachment.originalUrl) {
+                  return (
+                    <img
+                      key={idx}
+                      src={attachment.originalUrl}
+                      alt="이미지"
+                      className="max-w-full rounded-lg bg-gray-100"
+                      style={{ height: '300px', objectFit: 'contain' }}
+                    />
+                  )
+                }
+                
+                // 다운로드 중이거나 대기 중인 경우
+                return (
+                  <div key={idx} className="relative w-48 h-48 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                    <div className="text-center">
+                      <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-xs text-gray-500">
+                        {attachment.downloaded === false ? '다운로드 중...' : '이미지'}
+                        {attachment.imageSet ? ` (${attachment.imageSet.index}/${attachment.imageSet.total})` : ''}
+                      </p>
+                      {attachment.error && (
+                        <p className="text-xs text-red-500 mt-1">로드 실패</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+              // External 이미지 또는 Instagram 이미지 (URL 있음)
+              else if (attachment.originalContentUrl || attachment.payload?.url) {
+                return (
                   <img
-                    src={attachment.payload?.url}
+                    key={idx}
+                    src={attachment.originalContentUrl || attachment.payload?.url}
                     alt="Image attachment"
-                    className="w-full h-full object-cover"
-                    loading="lazy"
+                    className="max-w-full rounded-lg bg-gray-100"
+                    style={{ height: '300px', objectFit: 'contain' }}
                   />
-                </div>
-              )
+                )
+              }
+              // 기본 이미지 플레이스홀더
+              else {
+                return (
+                  <div key={idx} className="relative w-48 h-48 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                    <div className="text-center">
+                      <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-xs text-gray-500">이미지</p>
+                    </div>
+                  </div>
+                )
+              }
             } else if (attachment.type === 'video') {
-              return (
-                <video
-                  key={idx}
-                  src={attachment.payload?.url}
-                  controls
-                  className="max-w-xs rounded-lg"
-                />
-              )
+              // External 비디오 또는 Instagram 비디오 (URL 있음)
+              if (attachment.originalContentUrl || attachment.payload?.url) {
+                return (
+                  <video
+                    key={idx}
+                    src={attachment.originalContentUrl || attachment.payload?.url}
+                    controls
+                    className="max-w-full rounded-lg bg-gray-100"
+                    style={{ height: '300px', objectFit: 'contain' }}
+                    poster={attachment.previewImageUrl}
+                  >
+                    브라우저가 비디오를 지원하지 않습니다.
+                  </video>
+                )
+              }
+              // LINE 비디오 처리
+              else {
+                const duration = attachment.duration ? `${Math.floor(attachment.duration / 1000)}초` : ''
+                
+                // 다운로드 완료되어 URL이 있는 경우
+                if (attachment.originalUrl) {
+                  return (
+                    <video
+                      key={idx}
+                      src={attachment.originalUrl}
+                      controls
+                      className="max-w-full rounded-lg bg-gray-100"
+                      style={{ height: '300px', objectFit: 'contain' }}
+                    >
+                      브라우저가 비디오를 지원하지 않습니다.
+                    </video>
+                  )
+                }
+                
+                // 다운로드 중이거나 대기 중인 경우
+                return (
+                  <div key={idx} className="relative w-48 h-48 bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                    <div className="text-center">
+                      <svg className="w-12 h-12 mx-auto text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-xs text-gray-500">
+                        {attachment.downloaded === false ? '다운로드 중...' : `동영상 ${duration}`}
+                      </p>
+                      {attachment.error && (
+                        <p className="text-xs text-red-500 mt-1">로드 실패</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
             } else if (attachment.type === 'audio') {
+              // URL이 있는 경우 (Instagram 등)
+              if (attachment.payload?.url) {
+                return (
+                  <audio
+                    key={idx}
+                    src={attachment.payload?.url}
+                    controls
+                    className="max-w-xs"
+                    style={{ height: '54px' }}
+                  />
+                )
+              }
+              // LINE 오디오 처리
+              else {
+                const duration = attachment.duration ? `${Math.floor(attachment.duration / 1000)}초` : ''
+                
+                // 다운로드 완료되어 URL이 있는 경우
+                if (attachment.originalUrl) {
+                  return (
+                    <audio
+                      key={idx}
+                      src={attachment.originalUrl}
+                      controls
+                      className="max-w-xs"
+                      style={{ height: '54px' }}
+                    />
+                  )
+                }
+                
+                // 다운로드 중이거나 대기 중인 경우
+                return (
+                  <div key={idx} className="flex items-center gap-2 p-3 bg-gray-100 rounded-lg">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-medium text-gray-700">
+                        {attachment.downloaded === false ? '다운로드 중...' : '오디오'}
+                      </p>
+                      <p className="text-xs text-gray-500">{duration}</p>
+                      {attachment.error && (
+                        <p className="text-xs text-red-500">로드 실패</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+            } else if (attachment.type === 'file') {
+              // 다운로드 완료되어 URL이 있는 경우
+              if (attachment.originalUrl) {
+                return (
+                  <a
+                    key={idx}
+                    href={attachment.originalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 p-3 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-medium text-gray-700">{attachment.fileName || '파일'}</p>
+                      {attachment.fileSize && (
+                        <p className="text-xs text-gray-500">
+                          {(attachment.fileSize / 1024).toFixed(1)} KB
+                        </p>
+                      )}
+                      <p className="text-xs text-blue-500">클릭하여 다운로드</p>
+                    </div>
+                  </a>
+                )
+              }
+              
+              // 다운로드 중이거나 대기 중인 경우
               return (
-                <audio
-                  key={idx}
-                  src={attachment.payload?.url}
-                  controls
-                  className="max-w-xs"
-                />
+                <div key={idx} className="flex items-center gap-2 p-3 bg-gray-100 rounded-lg">
+                  <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <div>
+                    <p className="text-xs font-medium text-gray-700">
+                      {attachment.downloaded === false ? '다운로드 중...' : (attachment.fileName || '파일')}
+                    </p>
+                    {attachment.fileSize && (
+                      <p className="text-xs text-gray-500">
+                        {(attachment.fileSize / 1024).toFixed(1)} KB
+                      </p>
+                    )}
+                    {attachment.error && (
+                      <p className="text-xs text-red-500">로드 실패</p>
+                    )}
+                  </div>
+                </div>
               )
             } else {
               return (
@@ -551,10 +901,10 @@ export default function ConversationView({
           <h3 className="text-base font-semibold text-gray-900">
             {customerName || customerId || 'Unknown User'}
           </h3>
-          {/* Instagram Icon */}
+          {/* Platform Icon */}
           <img 
-            src="/instagram-logo.png" 
-            alt="Instagram" 
+            src={platform === 'line' ? '/line-logo.svg' : '/instagram-logo.png'} 
+            alt={platform} 
             className="w-4 h-4 object-contain"
           />
         </div>
@@ -611,6 +961,51 @@ export default function ConversationView({
         </button>
       </div>
 
+      {/* Messaging Window Warning Banner - Instagram only */}
+      {platform === 'instagram' && currentMessagingWindowExpiresAt && (() => {
+        const expiresAt = new Date(currentMessagingWindowExpiresAt)
+        const now = new Date()
+        const hoursRemaining = (expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60)
+        const isExpired = hoursRemaining <= 0
+        const showWarning = hoursRemaining <= 6 // Show warning when 6 hours or less remaining
+        
+        if (!showWarning && !isExpired) return null
+        
+        const hours = Math.floor(Math.abs(hoursRemaining))
+        const minutes = Math.floor((Math.abs(hoursRemaining) * 60) % 60)
+        
+        return (
+          <div className={`px-6 py-3 border-b ${
+            isExpired 
+              ? 'bg-red-50 border-red-200' 
+              : 'bg-yellow-50 border-yellow-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <svg className={`w-5 h-5 ${
+                isExpired ? 'text-red-600' : 'text-yellow-600'
+              }`} fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <div className="flex-1">
+                <p className={`text-sm font-medium ${
+                  isExpired ? 'text-red-800' : 'text-yellow-800'
+                }`}>
+                  {isExpired ? '메시징 윈도우 만료됨' : '메시징 윈도우 곧 만료'}
+                </p>
+                <p className={`text-xs mt-1 ${
+                  isExpired ? 'text-red-700' : 'text-yellow-700'
+                }`}>
+                  {isExpired 
+                    ? '고객이 새 메시지를 보내야 대화를 계속할 수 있습니다.'
+                    : `${hours}시간 ${minutes}분 후 만료됩니다.`
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Messages */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-4">
         {loading ? (
@@ -664,46 +1059,59 @@ export default function ConversationView({
                     <div
                       className={`flex ${isBusinessMessage ? 'justify-end' : 'justify-start'} ${isSameMinuteAsNext ? 'mb-1' : 'mb-3'} group`}
                     >
-                      <div className={`flex ${isBusinessMessage ? 'flex-row-reverse' : 'flex-row'} items-end gap-2 max-w-xs lg:max-w-md`}>
+                      <div className={`flex ${isBusinessMessage ? 'flex-row-reverse' : 'flex-row'} items-center gap-2 max-w-xs lg:max-w-md`}>
+                        {/* 말풍선 */}
                         <div
                           className={`px-4 py-2 rounded-2xl relative ${
                             isBusinessMessage
-                              ? 'bg-blue-600 text-white'
+                              ? msg.status === 'failed'
+                                ? 'bg-red-500 text-white'
+                                : 'bg-blue-600 text-white'
                               : 'bg-gray-100 text-gray-900'
                           } ${msg.status === 'pending' ? 'opacity-70' : ''}`}
                         >
                           {renderMessageContent(msg)}
-                          
-                          {/* 전송 상태 표시 */}
-                          {msg.status === 'failed' && (
-                            <div className="absolute -right-20 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                              <button
-                                onClick={() => retryMessage(msg)}
-                                className="p-1 rounded-full bg-red-500 text-white hover:bg-red-600"
-                                title="재전송"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                </svg>
-                              </button>
+                        </div>
+                        
+                        {/* 실패 상태 표시 */}
+                        {msg.status === 'failed' && (
+                          <>
+                            <span className="inline-flex items-center gap-1 bg-white rounded-full px-2 py-0.5 self-end shadow-sm">
+                              {msg.failureReason !== 'MESSAGING_WINDOW_EXPIRED' && (
+                                <button
+                                  onClick={() => retryMessage(msg)}
+                                  className="text-gray-500 hover:text-gray-700 transition-colors"
+                                  title="재전송"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  </svg>
+                                </button>
+                              )}
                               <button
                                 onClick={() => deleteFailedMessage(msg.optimisticId!)}
-                                className="p-1 rounded-full bg-gray-500 text-white hover:bg-gray-600"
+                                className="text-gray-500 hover:text-gray-700 transition-colors"
                                 title="삭제"
                               >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                               </button>
-                            </div>
-                          )}
-                        </div>
-                        {/* 같은 시간대 그룹의 마지막 메시지에만 시간 표시 */}
-                        {!isSameMinuteAsNext && (
-                          <div className="text-[10px] text-gray-500 mb-1 whitespace-nowrap">
+                            </span>
+                            <span className="text-[10px] text-red-500 whitespace-nowrap self-end">
+                              {msg.failureReason === 'MESSAGING_WINDOW_EXPIRED' 
+                                ? '24시간 만료' 
+                                : '실패'
+                              }
+                            </span>
+                          </>
+                        )}
+                        
+                        {/* 시간 표시 - 실패한 메시지는 시간 표시 안함 */}
+                        {!isSameMinuteAsNext && msg.status !== 'failed' && (
+                          <div className="text-[10px] text-gray-500 whitespace-nowrap self-end">
                             {formatTime(msg.message_timestamp || msg.created_at)}
                             {msg.status === 'pending' && ' • 전송 중...'}
-                            {msg.status === 'failed' && ' • 실패'}
                           </div>
                         )}
                       </div>
@@ -738,11 +1146,15 @@ export default function ConversationView({
             value={messageText}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyPress}
-            placeholder={customerId ? "메시지 입력..." : "대화를 선택하세요"}
-            disabled={!customerId}
+            placeholder={
+              !customerId ? "대화를 선택하세요" :
+              !messagingWindowStatus.canSend ? "메시징 시간이 만료되었습니다" :
+              "메시지 입력..."
+            }
+            disabled={!customerId || !messagingWindowStatus.canSend}
             rows={1}
             className={`flex-1 px-4 py-2 text-xs border border-gray-300 rounded-2xl resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              !customerId ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+              !customerId || !messagingWindowStatus.canSend ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
             }`}
             style={{
               minHeight: '36px',
@@ -760,13 +1172,13 @@ export default function ConversationView({
                 textareaRef.current.focus()
               }
             }}
-            disabled={!customerId || !messageText.trim()}
+            disabled={!customerId || !messageText.trim() || !messagingWindowStatus.canSend}
             className={`p-2 rounded-full transition-colors ${
-              !customerId || !messageText.trim()
+              !customerId || !messageText.trim() || !messagingWindowStatus.canSend
                 ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                 : 'bg-blue-500 text-white hover:bg-blue-600'
             }`}
-            title="전송"
+            title={!messagingWindowStatus.canSend ? "메시징 시간 만료" : "전송"}
           >
             <svg className="w-5 h-5 rotate-45" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

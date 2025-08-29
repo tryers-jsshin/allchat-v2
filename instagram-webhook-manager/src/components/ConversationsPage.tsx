@@ -12,6 +12,8 @@ interface Conversation {
   customer_id: string
   unread_count: number
   status?: string
+  platform?: string  // 플랫폼 추가
+  messaging_window_expires_at?: string  // 메시징 윈도우 만료 시간
   customer_profile?: {
     name?: string
     username?: string
@@ -55,6 +57,8 @@ export default function ConversationsPage() {
           businessAccountId={selectedConversation?.business_account_id}
           customerId={selectedConversation?.customer_id}
           status={selectedConversation?.status}
+          platform={selectedConversation?.platform}
+          messagingWindowExpiresAt={selectedConversation?.messaging_window_expires_at}
           customerName={
             selectedConversation?.customer_profile?.name || 
             selectedConversation?.customer_profile?.username

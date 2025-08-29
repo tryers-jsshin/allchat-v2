@@ -23,20 +23,20 @@ export async function PUT(
       return NextResponse.json({ error: 'Status is required' }, { status: 400 })
     }
 
-    // Valid status values
-    const validStatuses = ['pending', 'in_progress', 'completed', 'spam']
+    // Valid status values (2-level system)
+    const validStatuses = ['in_progress', 'completed']
     if (!validStatuses.includes(status)) {
-      return NextResponse.json({ error: 'Invalid status value' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid status value. Use: in_progress or completed' }, { status: 400 })
     }
 
-    // Update conversation status in instagram_conversations table
+    // Update conversation status in conversations table (unified)
     const { data, error } = await supabase
-      .from('instagram_conversations')
+      .from('conversations')
       .update({ 
         status,
         updated_at: new Date().toISOString()
       })
-      .eq('conversation_id', conversation_id)
+      .eq('platform_conversation_id', conversation_id)
       .select()
       .single()
 
