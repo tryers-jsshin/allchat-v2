@@ -111,6 +111,8 @@ erDiagram
         integer message_count
         timestamp messaging_window_expires_at
         text messaging_window_type
+        boolean translation_enabled
+        text translation_target_lang
         jsonb platform_data
     }
     
@@ -125,6 +127,15 @@ erDiagram
         jsonb attachments
         text original_message_id UK
     }
+    
+    message_translations {
+        uuid id PK
+        text message_id FK
+        text source_lang
+        text target_lang
+        text translated_text
+        boolean is_deleted
+    }
 ```
 
 ### 핵심 테이블 상세
@@ -138,6 +149,8 @@ erDiagram
   - `unread_count`: 읽지 않은 메시지 수
   - `messaging_window_expires_at`: 메시징 윈도우 만료 시간 (Instagram만)
   - `messaging_window_type`: 'standard' (Instagram) 또는 NULL (LINE)
+  - `translation_enabled`: 번역 기능 활성화 여부
+  - `translation_target_lang`: 번역 대상 언어 (KO, EN, JA, ZH 등)
   - `platform_data`: 플랫폼별 추가 데이터 (JSONB)
 
 #### 2. messages (통합 메시지 관리)
@@ -169,6 +182,16 @@ erDiagram
 - **역할**: 플랫폼별 사용자 프로필 캐싱
 - **특징**: user_profiles 테이블로 자동 동기화
 - **캐시**: 24시간 주기로 갱신
+
+#### 6. message_translations (메시지 번역 관리)
+- **역할**: 메시지 번역 내용 저장 및 관리
+- **특징**: 소프트 삭제 지원, 다국어 지원
+- **주요 필드**:
+  - `message_id`: 원본 메시지 참조
+  - `source_lang`: 원본 언어
+  - `target_lang`: 번역 대상 언어
+  - `translated_text`: 번역된 텍스트
+  - `is_deleted`: 소프트 삭제 플래그
 
 ---
 
@@ -259,6 +282,8 @@ ConversationsPage (메인 컨테이너)
   - 플랫폼 아이콘 표시 (Instagram/LINE)
   - Debouncing 적용 (최적화 버전)
   - statusFilterRef 사용 (리렌더링 최소화)
+  - **Skeleton UI 로딩** (2025-08-30 추가)
+  - **상태 카운트 실시간 업데이트 개선** (2025-08-30)
 - **API 호출**:
   - GET `/api/conversations`
   - GET `/api/conversations/status-counts`
@@ -272,6 +297,18 @@ ConversationsPage (메인 컨테이너)
   - 미디어 고정 높이 (Layout Shift 방지)
   - IntersectionObserver로 무한 스크롤
   - unread_count 자동 리셋
+  - **실시간 번역 기능** (2025-08-30 추가)
+  - **WhatsApp 스타일 입력 영역** (2025-08-30 추가)
+- **번역 기능**:
+  - 메시지 클릭으로 번역 팝업 표시
+  - 번역 설정으로 자동 번역 활성화
+  - 번역된 메시지 인라인 표시
+  - 번역 삭제 기능
+- **WhatsApp 스타일 입력 영역**:
+  - 둥근 입력창 디자인
+  - 최대 4줄 자동 확장
+  - 커스텀 스크롤바 (4px 너비)
+  - 컴팩트한 버튼 배치
 - **스크롤 로직**: [📜 스크롤 로직 상세 섹션 참조]
 
 #### 4. ConsultationAssistant
@@ -580,6 +617,313 @@ in_progress (자동 재개)
    - **API**: PATCH `/api/conversations/[id]/mark-read`
    - **효과**: 읽음 상태 즉시 반영
 
+### 2025-08-30 번역 기능 및 UI 개선
+1. **실시간 번역 기능 구현**
+   - **메시지 번역**: 개별 메시지 클릭으로 번역 팝업 표시
+   - **자동 번역**: 대화별 번역 설정으로 자동 번역 활성화
+   - **번역 관리**: 번역 삭제, 재번역 기능
+   - **API**: Google Cloud Translation API 연동
+   - **DB**: message_translations 테이블로 번역 캐싱
+
+2. **WhatsApp 스타일 입력 영역**
+   - **디자인**: 둥근 모서리 입력창 (rounded-3xl)
+   - **자동 확장**: 최대 4줄까지 자동 높이 조절
+   - **커스텀 스크롤바**: 4px 너비의 얇은 스크롤바
+   - **최적화된 크기**: minHeight 30px, maxHeight 92px
+   - **맞춤법 검사 비활성화**: spellCheck={false}
+
+3. **Skeleton UI 로딩**
+   - **프로필 로딩**: 프로필 정보 로딩 중 스켈레톤 UI 표시
+   - **대화 목록**: 초기 로딩 시 스켈레톤 카드 표시
+   - **사용자 경험**: 깜빡임 없는 부드러운 전환
+
+4. **LINE 프로필 자동 로딩**
+   - **구현**: 웹훅 처리 후 자동으로 프로필 API 호출
+   - **효과**: 새 사용자 메시지 시 프로필 즉시 표시
+   - **최적화**: 비동기 처리로 웹훅 응답 속도 유지
+
+---
+
+## 🌐 번역 시스템 상세 (2025-08-30 구현)
+
+### 시스템 개요
+실시간 메시지 번역 시스템으로 DeepL API를 활용하여 고객과 상담원 간의 언어 장벽을 해소합니다.
+
+### 데이터베이스 구조
+
+#### translations 테이블
+```sql
+CREATE TABLE translations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID REFERENCES messages(id) ON DELETE CASCADE,
+  original_text TEXT NOT NULL,
+  translated_text TEXT NOT NULL,
+  source_lang VARCHAR(10),  -- NULL = 자동 감지
+  target_lang VARCHAR(10) NOT NULL,
+  translation_provider VARCHAR(20) DEFAULT 'deepl',
+  response_time_ms INTEGER,
+  character_count INTEGER,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  is_deleted BOOLEAN DEFAULT FALSE,  -- 소프트 삭제
+  deleted_at TIMESTAMP WITH TIME ZONE
+)
+```
+
+**인덱스**:
+- `idx_translations_message`: message_id 조회용
+- `idx_translations_message_cache`: 캐시 조회용 (message_id, target_lang, provider)
+- `idx_translations_active`: 활성 번역 조회용 (is_deleted = false)
+- `idx_translations_created`: 최근 번역 조회용
+
+#### conversations 테이블 번역 설정
+```sql
+ALTER TABLE conversations ADD COLUMN
+  translation_enabled BOOLEAN DEFAULT FALSE,
+  translation_target_lang VARCHAR(10) DEFAULT NULL
+```
+
+**인덱스**:
+- `idx_conversations_translation`: 번역 활성화된 대화 조회용
+
+### API 구조
+
+#### 1. DeepL Client (`/src/lib/deepl-client.ts`)
+```typescript
+class DeepLClient {
+  // 싱글톤 패턴 구현
+  translate(text, targetLang, options)     // 단일 번역
+  translateBatch(texts, targetLang, options) // 배치 번역
+  detectLanguage(text)                     // 언어 감지
+  getSourceLanguages()                     // 지원 언어 목록
+  getTargetLanguages()                     // 대상 언어 목록
+  getUsage()                              // API 사용량 조회
+  testConnection()                        // 연결 테스트
+}
+```
+
+**특징**:
+- Free/Pro 플랜 자동 감지 (API 키 suffix ':fx' 체크)
+- 적절한 API URL 자동 선택
+- 에러 핸들링 및 타입 안전성
+
+#### 2. 번역 API (`/api/translation/translate`)
+```typescript
+POST /api/translation/translate
+{
+  text: string,
+  targetLang: string,  // KO, EN, JA, ZH 등
+  sourceLang?: string, // 자동 감지 가능
+  messageId?: string   // 캐싱용
+}
+
+Response:
+{
+  success: boolean,
+  result: { text: string, detected_source_language?: string },
+  fromCache: boolean,    // 캐시 사용 여부
+  reactivated?: boolean, // 소프트 삭제된 번역 재활성화
+  responseTime: number
+}
+```
+
+**캐싱 로직**:
+1. message_id로 기존 번역 조회
+2. 활성 번역 있으면 캐시에서 반환
+3. 삭제된 번역 있으면 재활성화
+4. 없으면 DeepL API 호출 후 저장
+
+#### 3. 번역 삭제 API (`/api/translation/delete`)
+```typescript
+POST /api/translation/delete
+{
+  messageId: string,
+  targetLang?: string  // 기본값 'KO'
+}
+```
+
+**소프트 삭제**:
+- `is_deleted = true`, `deleted_at = now()` 설정
+- 데이터는 유지하되 조회에서 제외
+- 재번역 시 자동 재활성화 (API 호출 없이)
+
+#### 4. 대화 번역 설정 API (`/api/conversations/[id]/translation-settings`)
+```typescript
+GET /api/conversations/[id]/translation-settings
+Response: {
+  translation_enabled: boolean,
+  translation_target_lang: string | null
+}
+
+PATCH /api/conversations/[id]/translation-settings
+{
+  translation_enabled: boolean,
+  translation_target_lang: string
+}
+```
+
+### 프론트엔드 구현 (`ConversationView.tsx`)
+
+#### 상태 관리
+```typescript
+// 번역 설정 상태
+const [translationEnabled, setTranslationEnabled] = useState(false)
+const [translationTargetLang, setTranslationTargetLang] = useState('')
+const [translations, setTranslations] = useState<Record<string, string>>({})
+const [translatingMessageId, setTranslatingMessageId] = useState<string | null>(null)
+```
+
+#### 번역 워크플로우
+
+##### 1. 개별 메시지 번역
+```typescript
+handleTranslate(messageId, messageText):
+  1. 번역 중 상태 설정
+  2. API 호출 (/api/translation/translate)
+  3. 번역 결과를 translations 상태에 저장
+  4. 메시지에 인라인으로 번역 표시
+  5. 팝업 닫기
+```
+
+##### 2. 자동 번역 (메시지 전송 시)
+```typescript
+sendMessage():
+  if (translationEnabled && translationTargetLang):
+    1. 원본 메시지 전송
+    2. 번역 API 호출
+    3. 번역된 메시지도 자동 전송
+    4. 대화 흐름 유지
+```
+
+##### 3. 번역 삭제
+```typescript
+handleDeleteTranslation(messageId):
+  1. 삭제 API 호출
+  2. translations 상태에서 제거
+  3. UI 즉시 업데이트
+  4. 재번역 시 캐시에서 복구
+```
+
+#### UI/UX 특징
+
+##### 번역 팝업
+- 메시지 클릭 시 상단에 팝업 표시
+- 번역 있으면 "번역 삭제" 버튼
+- 없으면 "번역하기" 버튼
+- 번역 중 로딩 상태 표시
+
+##### 번역 설정 모달
+```html
+<select>
+  <option value="">사용 안함</option>
+  <option value="EN">영어 (English)</option>
+  <option value="JA">일본어 (日本語)</option>
+  <option value="ZH">중국어 (中文)</option>
+  <!-- 14개 언어 지원 -->
+</select>
+```
+
+##### 시각적 피드백
+- 번역 활성화 시:
+  - 입력창 테두리 녹색
+  - 번역 버튼 녹색
+  - placeholder에 대상 언어 표시
+- 번역된 메시지:
+  - 회색 배경
+  - 🌐 아이콘 표시
+  - 원본과 구분되는 스타일
+
+### 성능 최적화
+
+#### 캐싱 전략
+1. **DB 레벨 캐싱**
+   - message_id + target_lang별 유니크 저장
+   - 중복 API 호출 방지
+
+2. **소프트 삭제 활용**
+   - 삭제된 번역도 DB에 유지
+   - 재번역 시 API 호출 없이 재활성화
+   - 사용자 경험 개선 + 비용 절감
+
+3. **프론트엔드 캐싱**
+   - translations 상태로 메모리 캐싱
+   - 페이지 이동 시까지 유지
+
+#### 인덱스 최적화
+- 복합 인덱스로 조회 성능 향상
+- 활성 번역만 조회하는 부분 인덱스
+- 최근 번역 조회용 시간 인덱스
+
+### 지원 언어 (DeepL)
+```typescript
+const SUPPORTED_LANGUAGES = {
+  'EN': '영어 (English)',
+  'JA': '일본어 (日本語)',
+  'ZH': '중국어 간체 (中文简体)',
+  'ZH-TW': '중국어 번체 (中文繁體)',
+  'ES': '스페인어 (Español)',
+  'FR': '프랑스어 (Français)',
+  'DE': '독일어 (Deutsch)',
+  'RU': '러시아어 (Русский)',
+  'PT': '포르투갈어 (Português)',
+  'IT': '이탈리아어 (Italiano)',
+  'NL': '네덜란드어 (Nederlands)',
+  'PL': '폴란드어 (Polski)',
+  'TR': '터키어 (Türkçe)',
+  'AR': '아랍어 (العربية)'
+}
+```
+
+### 마이그레이션 가이드
+
+#### 필수 마이그레이션 순서
+1. `create_translations_table.sql` - 번역 테이블 생성
+2. `add_translation_settings_to_conversations.sql` - 대화 설정 추가
+3. `add_soft_delete_to_translations.sql` - 소프트 삭제 추가
+4. `migrate_translation_constraints.sql` - 제약 조건 최적화
+
+#### 환경 변수 설정
+```bash
+DEEPL_API_KEY=your-api-key-here  # ':fx' suffix for free plan
+```
+
+### 모니터링 및 분석
+
+#### 사용량 추적
+```sql
+-- 일별 번역 사용량
+SELECT 
+  DATE(created_at) as date,
+  COUNT(*) as translation_count,
+  SUM(character_count) as total_characters,
+  AVG(response_time_ms) as avg_response_time
+FROM translations
+WHERE is_deleted = false
+GROUP BY DATE(created_at)
+ORDER BY date DESC;
+
+-- 언어별 번역 통계
+SELECT 
+  source_lang,
+  target_lang,
+  COUNT(*) as count
+FROM translations
+WHERE is_deleted = false
+GROUP BY source_lang, target_lang
+ORDER BY count DESC;
+```
+
+#### 성능 모니터링
+- API 응답 시간: response_time_ms 필드 추적
+- 캐시 히트율: fromCache 플래그 모니터링
+- 재활성화율: reactivated 플래그 추적
+
+### 향후 개선 계획
+1. **Google Translate API 지원** - 멀티 프로바이더
+2. **번역 품질 피드백** - 사용자 평가 시스템
+3. **용어집 관리** - 도메인별 전문 용어
+4. **배치 번역** - 대화 전체 일괄 번역
+5. **번역 히스토리** - 수정 이력 추적
+
 ---
 
 ## 📜 스크롤 로직 상세 (2025-08-29 구현)
@@ -838,6 +1182,24 @@ npm start
   mediaUrl?: string
   accessToken?: string
   replyToken?: string
+  translationEnabled?: boolean
+  translationTargetLang?: string
+}
+```
+
+#### POST /api/messages/translate
+```typescript
+// Request Body
+{
+  text: string
+  targetLang: string  // KO, EN, JA, ZH 등
+  sourceLang?: string // 자동 감지 가능
+}
+
+// Response
+{
+  translatedText: string
+  detectedSourceLang?: string
 }
 ```
 
@@ -974,7 +1336,14 @@ function formatFollowerCount(count: number) {
 // 스피너
 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
 
-// 스켈레톤 로더
+// 스켈레톤 로더 (프로필)
+<span className="inline-block">
+  <div className="animate-pulse">
+    <div className="h-4 bg-gray-200 rounded w-24"></div>
+  </div>
+</span>
+
+// 스켈레톤 로더 (카드)
 <div className="animate-pulse">
   <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
   <div className="h-3 bg-gray-200 rounded w-32"></div>
@@ -1110,6 +1479,10 @@ MIT License
 - [x] 웹훅 실시간 모니터링
 - [x] 스크롤 최적화 (Layout Shift 방지)
 - [x] 다중 플랫폼 통합 아키텍처
+- [x] 실시간 번역 기능 (Google Cloud Translation API)
+- [x] WhatsApp 스타일 입력 UI
+- [x] Skeleton UI 로딩 상태
+- [x] LINE 프로필 자동 로딩
 
 ### 🚧 진행중
 - [ ] ConsultationAssistant 상담 도구
@@ -1127,6 +1500,6 @@ MIT License
 
 ---
 
-**Last Updated**: 2025-08-29  
-**Version**: 2.2.0  
+**Last Updated**: 2025-08-30  
+**Version**: 2.3.0  
 **Status**: Production Ready

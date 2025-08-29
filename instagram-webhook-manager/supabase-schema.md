@@ -1,5 +1,146 @@
 # Public Schema Documentation
 
+### conversations
+
+
+**Columns:**
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | uuid | NO | gen_random_uuid() | - |
+| platform | text | NO | - | - |
+| platform_conversation_id | text | NO | - | - |
+| customer_id | text | NO | - | - |
+| business_account_id | text | NO | - | - |
+| status | text | YES | 'pending'::text | - |
+| last_message_at | timestamp with time zone | YES | - | - |
+| last_message_text | text | YES | - | - |
+| last_message_type | text | YES | - | - |
+| last_sender_id | text | YES | - | - |
+| unread_count | integer | YES | 0 | - |
+| message_count | integer | YES | 0 | - |
+| platform_data | jsonb | YES | - | - |
+| created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
+| updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
+| customer_name | text | YES | - | - |
+| customer_profile_pic | text | YES | - | - |
+| customer_is_verified | boolean | YES | false | - |
+| messaging_window_expires_at | timestamp with time zone | YES | - | 메시징 윈도우 만료 시간 (Instagram: 고객 메시지 수신 시점 + 24시간, LINE: NULL) |
+| messaging_window_type | text | YES | 'human_agent'::text | 메시징 윈도우 타입: standard (24시간), NULL (LINE - 제한 없음) |
+| translation_enabled | boolean | YES | false | - |
+| translation_target_lang | character varying(10) | YES | NULL::character varying | - |
+
+
+### instagram_user_profiles
+
+
+**Columns:**
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | uuid | NO | gen_random_uuid() | - |
+| igsid | text | NO | - | - |
+| name | text | YES | - | - |
+| username | text | YES | - | - |
+| profile_pic | text | YES | - | - |
+| profile_pic_updated_at | timestamp with time zone | YES | - | - |
+| follower_count | integer | YES | 0 | - |
+| is_verified_user | boolean | YES | false | - |
+| is_user_follow_business | boolean | YES | false | - |
+| is_business_follow_user | boolean | YES | false | - |
+| has_user_consent | boolean | YES | true | - |
+| consent_granted_at | timestamp with time zone | YES | - | - |
+| raw_profile_data | jsonb | YES | - | - |
+| created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
+| updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
+| last_fetched_at | timestamp with time zone | YES | - | - |
+| fetch_error | text | YES | - | - |
+| cache_expires_at | timestamp with time zone | YES | - | - |
+| fetch_count | integer | YES | 0 | - |
+| first_message_at | timestamp with time zone | YES | - | - |
+| last_message_at | timestamp with time zone | YES | - | - |
+| total_messages | integer | YES | 0 | - |
+| is_active | boolean | YES | true | - |
+| notes | text | YES | - | - |
+
+
+### line_sent_messages
+
+
+**Columns:**
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | uuid | NO | gen_random_uuid() | - |
+| user_id | text | YES | - | - |
+| group_id | text | YES | - | - |
+| room_id | text | YES | - | - |
+| reply_token | text | YES | - | - |
+| message_type | text | NO | - | - |
+| message_text | text | YES | - | - |
+| attachments | jsonb | YES | - | - |
+| template_type | text | YES | - | - |
+| template_data | jsonb | YES | - | - |
+| quick_reply | jsonb | YES | - | - |
+| request_data | jsonb | NO | - | - |
+| response_data | jsonb | YES | - | - |
+| status | text | YES | 'pending'::text | - |
+| error_message | text | YES | - | - |
+| retry_count | integer | YES | 0 | - |
+| sent_at | timestamp with time zone | YES | now() | - |
+| created_at | timestamp with time zone | YES | now() | - |
+
+
+### line_user_profiles
+
+
+**Columns:**
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | uuid | NO | gen_random_uuid() | - |
+| user_id | text | NO | - | - |
+| display_name | text | YES | - | - |
+| picture_url | text | YES | - | - |
+| language | text | YES | - | - |
+| cache_expires_at | timestamp with time zone | YES | (now() + '24:00:00'::interval) | - |
+| last_fetched_at | timestamp with time zone | YES | now() | - |
+| created_at | timestamp with time zone | YES | now() | - |
+| updated_at | timestamp with time zone | YES | now() | - |
+
+
+### line_webhooks
+
+
+**Columns:**
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | uuid | NO | gen_random_uuid() | - |
+| webhook_type | text | NO | - | - |
+| raw_data | jsonb | NO | - | - |
+| user_id | text | YES | - | - |
+| group_id | text | YES | - | - |
+| room_id | text | YES | - | - |
+| message_id | text | YES | - | - |
+| message_type | text | YES | - | - |
+| message_text | text | YES | - | - |
+| attachments | jsonb | YES | - | - |
+| sticker_package_id | text | YES | - | - |
+| sticker_id | text | YES | - | - |
+| location_title | text | YES | - | - |
+| location_address | text | YES | - | - |
+| location_latitude | numeric | YES | - | - |
+| location_longitude | numeric | YES | - | - |
+| reply_token | text | YES | - | - |
+| postback_data | text | YES | - | - |
+| postback_params | jsonb | YES | - | - |
+| timestamp | bigint | YES | - | - |
+| created_at | timestamp with time zone | YES | now() | - |
+| processed | boolean | YES | false | - |
+| processed_at | timestamp with time zone | YES | - | - |
+
+
 ### messages
 > 모든 플랫폼의 메시지를 통합 관리하는 테이블
 
@@ -65,88 +206,6 @@
 | read_message_id | text | YES | - | - |
 
 
-### conversations
-
-
-**Columns:**
-
-| Column | Type | Nullable | Default | Description |
-|--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | - |
-| platform | text | NO | - | - |
-| platform_conversation_id | text | NO | - | - |
-| customer_id | text | NO | - | - |
-| business_account_id | text | NO | - | - |
-| status | text | YES | 'pending'::text | - |
-| last_message_at | timestamp with time zone | YES | - | - |
-| last_message_text | text | YES | - | - |
-| last_message_type | text | YES | - | - |
-| last_sender_id | text | YES | - | - |
-| unread_count | integer | YES | 0 | - |
-| message_count | integer | YES | 0 | - |
-| platform_data | jsonb | YES | - | - |
-| created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
-| updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
-| customer_name | text | YES | - | - |
-| customer_profile_pic | text | YES | - | - |
-| customer_is_verified | boolean | YES | false | - |
-| messaging_window_expires_at | timestamp with time zone | YES | - | 메시징 윈도우 만료 시간 (Instagram: 고객 메시지 수신 시점 + 24시간, LINE: NULL) |
-| messaging_window_type | text | YES | 'human_agent'::text | 메시징 윈도우 타입: standard (24시간), NULL (LINE - 제한 없음) |
-| translation_enabled | boolean | YES | false | - |
-| translation_target_lang | character varying(10) | YES | NULL::character varying | - |
-
-
-### instagram_user_profiles
-
-
-**Columns:**
-
-| Column | Type | Nullable | Default | Description |
-|--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | - |
-| igsid | text | NO | - | - |
-| name | text | YES | - | - |
-| username | text | YES | - | - |
-| profile_pic | text | YES | - | - |
-| profile_pic_updated_at | timestamp with time zone | YES | - | - |
-| follower_count | integer | YES | 0 | - |
-| is_verified_user | boolean | YES | false | - |
-| is_user_follow_business | boolean | YES | false | - |
-| is_business_follow_user | boolean | YES | false | - |
-| has_user_consent | boolean | YES | true | - |
-| consent_granted_at | timestamp with time zone | YES | - | - |
-| raw_profile_data | jsonb | YES | - | - |
-| created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
-| updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
-| last_fetched_at | timestamp with time zone | YES | - | - |
-| fetch_error | text | YES | - | - |
-| cache_expires_at | timestamp with time zone | YES | - | - |
-| fetch_count | integer | YES | 0 | - |
-| first_message_at | timestamp with time zone | YES | - | - |
-| last_message_at | timestamp with time zone | YES | - | - |
-| total_messages | integer | YES | 0 | - |
-| is_active | boolean | YES | true | - |
-| notes | text | YES | - | - |
-
-
-### user_profiles
-
-
-**Columns:**
-
-| Column | Type | Nullable | Default | Description |
-|--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | - |
-| platform | text | NO | - | - |
-| platform_user_id | text | NO | - | - |
-| display_name | text | YES | - | - |
-| username | text | YES | - | - |
-| profile_pic | text | YES | - | - |
-| platform_data | jsonb | YES | - | - |
-| created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
-| updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
-
-
 ### translations
 > 메시지 번역 저장 및 캐싱 테이블
 
@@ -168,7 +227,7 @@
 | deleted_at | timestamp with time zone | YES | - | - |
 
 
-### line_user_profiles
+### user_profiles
 
 
 **Columns:**
@@ -176,73 +235,14 @@
 | Column | Type | Nullable | Default | Description |
 |--------|------|----------|---------|-------------|
 | id | uuid | NO | gen_random_uuid() | - |
-| user_id | text | NO | - | - |
+| platform | text | NO | - | - |
+| platform_user_id | text | NO | - | - |
 | display_name | text | YES | - | - |
-| picture_url | text | YES | - | - |
-| language | text | YES | - | - |
-| cache_expires_at | timestamp with time zone | YES | (now() + '24:00:00'::interval) | - |
-| last_fetched_at | timestamp with time zone | YES | now() | - |
-| created_at | timestamp with time zone | YES | now() | - |
-| updated_at | timestamp with time zone | YES | now() | - |
-
-
-### line_webhooks
-
-
-**Columns:**
-
-| Column | Type | Nullable | Default | Description |
-|--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | - |
-| webhook_type | text | NO | - | - |
-| raw_data | jsonb | NO | - | - |
-| user_id | text | YES | - | - |
-| group_id | text | YES | - | - |
-| room_id | text | YES | - | - |
-| message_id | text | YES | - | - |
-| message_type | text | YES | - | - |
-| message_text | text | YES | - | - |
-| attachments | jsonb | YES | - | - |
-| sticker_package_id | text | YES | - | - |
-| sticker_id | text | YES | - | - |
-| location_title | text | YES | - | - |
-| location_address | text | YES | - | - |
-| location_latitude | numeric | YES | - | - |
-| location_longitude | numeric | YES | - | - |
-| reply_token | text | YES | - | - |
-| postback_data | text | YES | - | - |
-| postback_params | jsonb | YES | - | - |
-| timestamp | bigint | YES | - | - |
-| created_at | timestamp with time zone | YES | now() | - |
-| processed | boolean | YES | false | - |
-| processed_at | timestamp with time zone | YES | - | - |
-
-
-### line_sent_messages
-
-
-**Columns:**
-
-| Column | Type | Nullable | Default | Description |
-|--------|------|----------|---------|-------------|
-| id | uuid | NO | gen_random_uuid() | - |
-| user_id | text | YES | - | - |
-| group_id | text | YES | - | - |
-| room_id | text | YES | - | - |
-| reply_token | text | YES | - | - |
-| message_type | text | NO | - | - |
-| message_text | text | YES | - | - |
-| attachments | jsonb | YES | - | - |
-| template_type | text | YES | - | - |
-| template_data | jsonb | YES | - | - |
-| quick_reply | jsonb | YES | - | - |
-| request_data | jsonb | NO | - | - |
-| response_data | jsonb | YES | - | - |
-| status | text | YES | 'pending'::text | - |
-| error_message | text | YES | - | - |
-| retry_count | integer | YES | 0 | - |
-| sent_at | timestamp with time zone | YES | now() | - |
-| created_at | timestamp with time zone | YES | now() | - |
+| username | text | YES | - | - |
+| profile_pic | text | YES | - | - |
+| platform_data | jsonb | YES | - | - |
+| created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
+| updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
 
 ## Primary Keys
 
@@ -266,6 +266,40 @@
 - **messages.messages_message_type_check**: `CHECK ((message_type = ANY (ARRAY['text'::text, 'image'::text, 'video'::text, 'audio'::text, 'file'::text, 'sticker'::text, 'location'::text, 'template'::text, 'postback'::text, 'quick_reply'::text])))`
 ## Indexes
 
+- **conversations_platform_platform_conversation_id_key**: UNIQUE btree on conversations (CREATE UNIQUE INDEX conversations_platform_platform_conversation_id_key ON public.conversations USING btree (platform, platform_conversation_id))
+- **idx_conversations_lookup**: btree on conversations (CREATE INDEX idx_conversations_lookup ON public.conversations USING btree (platform, platform_conversation_id))
+- **idx_conversations_customer**: btree on conversations (CREATE INDEX idx_conversations_customer ON public.conversations USING btree (platform, customer_id))
+- **idx_conv_platform_status_time**: btree on conversations (CREATE INDEX idx_conv_platform_status_time ON public.conversations USING btree (platform, status, last_message_at DESC) WHERE (last_message_at IS NOT NULL))
+- **idx_conv_active**: btree on conversations (CREATE INDEX idx_conv_active ON public.conversations USING btree (platform, last_message_at DESC) WHERE (status = ANY (ARRAY['pending'::text, 'in_progress'::text])))
+- **idx_conv_customer_lookup**: btree on conversations (CREATE INDEX idx_conv_customer_lookup ON public.conversations USING btree (platform, customer_id, last_message_at DESC))
+- **idx_conv_message_count**: btree on conversations (CREATE INDEX idx_conv_message_count ON public.conversations USING btree (platform, message_count DESC) WHERE (message_count > 0))
+- **idx_conversations_platform_status_unread**: btree on conversations (CREATE INDEX idx_conversations_platform_status_unread ON public.conversations USING btree (platform, status, unread_count DESC))
+- **idx_conversations_platform_updated**: btree on conversations (CREATE INDEX idx_conversations_platform_updated ON public.conversations USING btree (platform, updated_at DESC))
+- **idx_conversations_messaging_window_expires**: btree on conversations (CREATE INDEX idx_conversations_messaging_window_expires ON public.conversations USING btree (platform, messaging_window_expires_at) WHERE (messaging_window_expires_at IS NOT NULL))
+- **idx_conversations_translation**: btree on conversations (CREATE INDEX idx_conversations_translation ON public.conversations USING btree (translation_enabled, translation_target_lang) WHERE (translation_enabled = true))
+- **idx_conv_customer_cache**: btree on conversations (CREATE INDEX idx_conv_customer_cache ON public.conversations USING btree (platform, customer_name, customer_profile_pic) WHERE (customer_name IS NOT NULL))
+- **instagram_user_profiles_igsid_key**: UNIQUE btree on instagram_user_profiles (CREATE UNIQUE INDEX instagram_user_profiles_igsid_key ON public.instagram_user_profiles USING btree (igsid))
+- **idx_user_profiles_igsid**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_igsid ON public.instagram_user_profiles USING btree (igsid))
+- **idx_user_profiles_username**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_username ON public.instagram_user_profiles USING btree (username))
+- **idx_user_profiles_cache_expires**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_cache_expires ON public.instagram_user_profiles USING btree (cache_expires_at))
+- **idx_user_profiles_is_verified**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_is_verified ON public.instagram_user_profiles USING btree (is_verified_user))
+- **idx_user_profiles_follower_count**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_follower_count ON public.instagram_user_profiles USING btree (follower_count DESC))
+- **idx_user_profiles_last_message**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_last_message ON public.instagram_user_profiles USING btree (last_message_at DESC))
+- **idx_user_profiles_is_active**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_is_active ON public.instagram_user_profiles USING btree (is_active))
+- **idx_line_sent_messages_user_id**: btree on line_sent_messages (CREATE INDEX idx_line_sent_messages_user_id ON public.line_sent_messages USING btree (user_id))
+- **idx_line_sent_messages_status**: btree on line_sent_messages (CREATE INDEX idx_line_sent_messages_status ON public.line_sent_messages USING btree (status))
+- **idx_line_sent_messages_sent_at**: btree on line_sent_messages (CREATE INDEX idx_line_sent_messages_sent_at ON public.line_sent_messages USING btree (sent_at DESC))
+- **idx_line_sent_messages_message_text**: gin on line_sent_messages (CREATE INDEX idx_line_sent_messages_message_text ON public.line_sent_messages USING gin (to_tsvector('simple'::regconfig, COALESCE(message_text, ''::text))))
+- **line_user_profiles_user_id_key**: UNIQUE btree on line_user_profiles (CREATE UNIQUE INDEX line_user_profiles_user_id_key ON public.line_user_profiles USING btree (user_id))
+- **idx_line_user_profiles_user_id**: btree on line_user_profiles (CREATE INDEX idx_line_user_profiles_user_id ON public.line_user_profiles USING btree (user_id))
+- **idx_line_user_profiles_cache_expires**: btree on line_user_profiles (CREATE INDEX idx_line_user_profiles_cache_expires ON public.line_user_profiles USING btree (cache_expires_at))
+- **idx_line_webhooks_user_id**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_user_id ON public.line_webhooks USING btree (user_id))
+- **idx_line_webhooks_message_id**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_message_id ON public.line_webhooks USING btree (message_id))
+- **idx_line_webhooks_webhook_type**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_webhook_type ON public.line_webhooks USING btree (webhook_type))
+- **idx_line_webhooks_timestamp**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_timestamp ON public.line_webhooks USING btree ("timestamp" DESC))
+- **idx_line_webhooks_created_at**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_created_at ON public.line_webhooks USING btree (created_at DESC))
+- **idx_line_webhooks_processed**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_processed ON public.line_webhooks USING btree (processed))
+- **idx_line_webhooks_message_text**: gin on line_webhooks (CREATE INDEX idx_line_webhooks_message_text ON public.line_webhooks USING gin (to_tsvector('simple'::regconfig, COALESCE(message_text, ''::text))))
 - **messages_platform_original_message_id_key**: UNIQUE btree on messages (CREATE UNIQUE INDEX messages_platform_original_message_id_key ON public.messages USING btree (platform, original_message_id))
 - **idx_messages_conversation_time**: btree on messages (CREATE INDEX idx_messages_conversation_time ON public.messages USING btree (conversation_id, message_timestamp DESC))
 - **idx_messages_platform_conversation**: btree on messages (CREATE INDEX idx_messages_platform_conversation ON public.messages USING btree (platform, conversation_id))
@@ -288,51 +322,17 @@
 - **idx_webhooks_conversation**: btree on instagram_webhooks (CREATE INDEX idx_webhooks_conversation ON public.instagram_webhooks USING btree (sender_id, recipient_id, message_timestamp DESC))
 - **idx_webhooks_unprocessed**: btree on instagram_webhooks (CREATE INDEX idx_webhooks_unprocessed ON public.instagram_webhooks USING btree (processed, created_at) WHERE (processed = false))
 - **idx_instagram_webhooks_participants**: btree on instagram_webhooks (CREATE INDEX idx_instagram_webhooks_participants ON public.instagram_webhooks USING btree (sender_id, recipient_id))
-- **conversations_platform_platform_conversation_id_key**: UNIQUE btree on conversations (CREATE UNIQUE INDEX conversations_platform_platform_conversation_id_key ON public.conversations USING btree (platform, platform_conversation_id))
-- **idx_conversations_lookup**: btree on conversations (CREATE INDEX idx_conversations_lookup ON public.conversations USING btree (platform, platform_conversation_id))
-- **idx_conversations_customer**: btree on conversations (CREATE INDEX idx_conversations_customer ON public.conversations USING btree (platform, customer_id))
-- **idx_conv_platform_status_time**: btree on conversations (CREATE INDEX idx_conv_platform_status_time ON public.conversations USING btree (platform, status, last_message_at DESC) WHERE (last_message_at IS NOT NULL))
-- **idx_conv_active**: btree on conversations (CREATE INDEX idx_conv_active ON public.conversations USING btree (platform, last_message_at DESC) WHERE (status = ANY (ARRAY['pending'::text, 'in_progress'::text])))
-- **idx_conv_customer_lookup**: btree on conversations (CREATE INDEX idx_conv_customer_lookup ON public.conversations USING btree (platform, customer_id, last_message_at DESC))
-- **idx_conv_message_count**: btree on conversations (CREATE INDEX idx_conv_message_count ON public.conversations USING btree (platform, message_count DESC) WHERE (message_count > 0))
-- **idx_conv_customer_cache**: btree on conversations (CREATE INDEX idx_conv_customer_cache ON public.conversations USING btree (platform, customer_name, customer_profile_pic) WHERE (customer_name IS NOT NULL))
-- **idx_conversations_platform_status_unread**: btree on conversations (CREATE INDEX idx_conversations_platform_status_unread ON public.conversations USING btree (platform, status, unread_count DESC))
-- **idx_conversations_platform_updated**: btree on conversations (CREATE INDEX idx_conversations_platform_updated ON public.conversations USING btree (platform, updated_at DESC))
-- **idx_conversations_messaging_window_expires**: btree on conversations (CREATE INDEX idx_conversations_messaging_window_expires ON public.conversations USING btree (platform, messaging_window_expires_at) WHERE (messaging_window_expires_at IS NOT NULL))
-- **idx_conversations_translation**: btree on conversations (CREATE INDEX idx_conversations_translation ON public.conversations USING btree (translation_enabled, translation_target_lang) WHERE (translation_enabled = true))
-- **instagram_user_profiles_igsid_key**: UNIQUE btree on instagram_user_profiles (CREATE UNIQUE INDEX instagram_user_profiles_igsid_key ON public.instagram_user_profiles USING btree (igsid))
-- **idx_user_profiles_igsid**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_igsid ON public.instagram_user_profiles USING btree (igsid))
-- **idx_user_profiles_username**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_username ON public.instagram_user_profiles USING btree (username))
-- **idx_user_profiles_cache_expires**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_cache_expires ON public.instagram_user_profiles USING btree (cache_expires_at))
-- **idx_user_profiles_is_verified**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_is_verified ON public.instagram_user_profiles USING btree (is_verified_user))
-- **idx_user_profiles_follower_count**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_follower_count ON public.instagram_user_profiles USING btree (follower_count DESC))
-- **idx_user_profiles_last_message**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_last_message ON public.instagram_user_profiles USING btree (last_message_at DESC))
-- **idx_user_profiles_is_active**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_is_active ON public.instagram_user_profiles USING btree (is_active))
-- **user_profiles_platform_platform_user_id_key**: UNIQUE btree on user_profiles (CREATE UNIQUE INDEX user_profiles_platform_platform_user_id_key ON public.user_profiles USING btree (platform, platform_user_id))
-- **idx_user_profiles_lookup**: btree on user_profiles (CREATE INDEX idx_user_profiles_lookup ON public.user_profiles USING btree (platform, platform_user_id))
-- **idx_user_profiles_platform**: btree on user_profiles (CREATE INDEX idx_user_profiles_platform ON public.user_profiles USING btree (platform))
-- **idx_profiles_platform_user**: btree on user_profiles (CREATE INDEX idx_profiles_platform_user ON public.user_profiles USING btree (platform, platform_user_id))
-- **idx_profiles_display**: btree on user_profiles (CREATE INDEX idx_profiles_display ON public.user_profiles USING btree (display_name, username))
 - **idx_translations_message**: btree on translations (CREATE INDEX idx_translations_message ON public.translations USING btree (message_id) WHERE (message_id IS NOT NULL))
 - **idx_translations_created**: btree on translations (CREATE INDEX idx_translations_created ON public.translations USING btree (created_at DESC))
 - **idx_translations_langs**: btree on translations (CREATE INDEX idx_translations_langs ON public.translations USING btree (source_lang, target_lang))
 - **unique_translation_per_message**: UNIQUE btree on translations (CREATE UNIQUE INDEX unique_translation_per_message ON public.translations USING btree (message_id, target_lang, translation_provider))
 - **idx_translations_message_cache**: btree on translations (CREATE INDEX idx_translations_message_cache ON public.translations USING btree (message_id, target_lang, translation_provider) WHERE (message_id IS NOT NULL))
 - **idx_translations_active**: btree on translations (CREATE INDEX idx_translations_active ON public.translations USING btree (message_id, target_lang, is_deleted) WHERE (is_deleted = false))
-- **line_user_profiles_user_id_key**: UNIQUE btree on line_user_profiles (CREATE UNIQUE INDEX line_user_profiles_user_id_key ON public.line_user_profiles USING btree (user_id))
-- **idx_line_user_profiles_user_id**: btree on line_user_profiles (CREATE INDEX idx_line_user_profiles_user_id ON public.line_user_profiles USING btree (user_id))
-- **idx_line_user_profiles_cache_expires**: btree on line_user_profiles (CREATE INDEX idx_line_user_profiles_cache_expires ON public.line_user_profiles USING btree (cache_expires_at))
-- **idx_line_webhooks_user_id**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_user_id ON public.line_webhooks USING btree (user_id))
-- **idx_line_webhooks_message_id**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_message_id ON public.line_webhooks USING btree (message_id))
-- **idx_line_webhooks_webhook_type**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_webhook_type ON public.line_webhooks USING btree (webhook_type))
-- **idx_line_webhooks_timestamp**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_timestamp ON public.line_webhooks USING btree ("timestamp" DESC))
-- **idx_line_webhooks_created_at**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_created_at ON public.line_webhooks USING btree (created_at DESC))
-- **idx_line_webhooks_processed**: btree on line_webhooks (CREATE INDEX idx_line_webhooks_processed ON public.line_webhooks USING btree (processed))
-- **idx_line_webhooks_message_text**: gin on line_webhooks (CREATE INDEX idx_line_webhooks_message_text ON public.line_webhooks USING gin (to_tsvector('simple'::regconfig, COALESCE(message_text, ''::text))))
-- **idx_line_sent_messages_user_id**: btree on line_sent_messages (CREATE INDEX idx_line_sent_messages_user_id ON public.line_sent_messages USING btree (user_id))
-- **idx_line_sent_messages_status**: btree on line_sent_messages (CREATE INDEX idx_line_sent_messages_status ON public.line_sent_messages USING btree (status))
-- **idx_line_sent_messages_sent_at**: btree on line_sent_messages (CREATE INDEX idx_line_sent_messages_sent_at ON public.line_sent_messages USING btree (sent_at DESC))
-- **idx_line_sent_messages_message_text**: gin on line_sent_messages (CREATE INDEX idx_line_sent_messages_message_text ON public.line_sent_messages USING gin (to_tsvector('simple'::regconfig, COALESCE(message_text, ''::text))))
+- **user_profiles_platform_platform_user_id_key**: UNIQUE btree on user_profiles (CREATE UNIQUE INDEX user_profiles_platform_platform_user_id_key ON public.user_profiles USING btree (platform, platform_user_id))
+- **idx_user_profiles_lookup**: btree on user_profiles (CREATE INDEX idx_user_profiles_lookup ON public.user_profiles USING btree (platform, platform_user_id))
+- **idx_user_profiles_platform**: btree on user_profiles (CREATE INDEX idx_user_profiles_platform ON public.user_profiles USING btree (platform))
+- **idx_profiles_platform_user**: btree on user_profiles (CREATE INDEX idx_profiles_platform_user ON public.user_profiles USING btree (platform, platform_user_id))
+- **idx_profiles_display**: btree on user_profiles (CREATE INDEX idx_profiles_display ON public.user_profiles USING btree (display_name, username))
 ## Triggers
 
 ### sync_line_url_update_trigger on line_webhooks\n- **Event**: AFTER\n- **Timing**: UPDATE\n- **Function**: update_messages_line_url\n
@@ -349,6 +349,25 @@
 ### sync_instagram_all_in_one_trigger on instagram_webhooks\n- **Event**: AFTER\n- **Timing**: INSERT\n- **Function**: sync_instagram_all_in_one\n
 ## RLS Policies
 
+### instagram_user_profiles
+**RLS Enabled**: Yes
+
+- **Allow all operations on user profiles** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+
+### line_sent_messages
+**RLS Enabled**: Yes
+
+- **Allow anonymous insert sent** (INSERT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow authenticated select sent** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow authenticated update sent** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+
+### line_webhooks
+**RLS Enabled**: Yes
+
+- **Allow anonymous insert webhooks** (INSERT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow authenticated select webhooks** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow authenticated update webhooks** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+
 ### messages
 **RLS Enabled**: Yes
 
@@ -361,29 +380,10 @@
 - **Allow authenticated select** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 - **Allow authenticated update** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 
-### instagram_user_profiles
-**RLS Enabled**: Yes
-
-- **Allow all operations on user profiles** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-
 ### translations
 **RLS Enabled**: Yes
 
 - **Allow all operations on translations** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-
-### line_webhooks
-**RLS Enabled**: Yes
-
-- **Allow anonymous insert webhooks** (INSERT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-- **Allow authenticated select webhooks** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-- **Allow authenticated update webhooks** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-
-### line_sent_messages
-**RLS Enabled**: Yes
-
-- **Allow anonymous insert sent** (INSERT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-- **Allow authenticated select sent** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-- **Allow authenticated update sent** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 ## Views
 
 ### active_messaging_windows
