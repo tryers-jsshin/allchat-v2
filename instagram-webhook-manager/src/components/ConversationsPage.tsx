@@ -35,8 +35,8 @@ export default function ConversationsPage() {
       {/* Header */}
       <header className="h-14 border-b border-gray-200 flex items-center justify-between px-4 bg-white">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold">AllChat</h1>
-          <span className="text-sm text-gray-500">통합 메신저 상담 관리 시스템</span>
+          <h1 className="text-xl font-bold text-gray-900">AllChat</h1>
+          <span className="text-sm text-gray-600">통합 메신저 상담 관리 시스템</span>
         </div>
       </header>
       

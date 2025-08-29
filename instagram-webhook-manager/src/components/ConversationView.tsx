@@ -41,10 +41,23 @@ export default function ConversationView({
   const [isCompleting, setIsCompleting] = useState(false)
   const [currentStatus, setCurrentStatus] = useState(status)
   const [currentMessagingWindowExpiresAt, setCurrentMessagingWindowExpiresAt] = useState(messagingWindowExpiresAt)
+  // Translation related states
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [selectedMessageText, setSelectedMessageText] = useState<string | null>(null)
+  const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null)
+  const [translations, setTranslations] = useState<Record<string, string>>({})
+  const [translatingMessageId, setTranslatingMessageId] = useState<string | null>(null)
+  const [checkedTranslationIds, setCheckedTranslationIds] = useState<Set<string>>(new Set())
+  
+  // Translation settings states
+  const [showTranslationSettings, setShowTranslationSettings] = useState(false)
+  const [translationEnabled, setTranslationEnabled] = useState(false)
+  const [translationTargetLang, setTranslationTargetLang] = useState<string>('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
   
   // 메시징 윈도우 상태 계산
   const messagingWindowStatus = useMemo(() => {
@@ -97,7 +110,15 @@ export default function ConversationView({
       setHasMore(true)
       setIsFirstLoad(true)
       setCurrentStatus(status)
+      
+      // Reset translation cache when conversation changes
+      setCheckedTranslationIds(new Set())
+      setTranslations({})
+      
       fetchMessages(0, true)
+      
+      // Load translation settings for this conversation
+      fetchTranslationSettings()
       
       // 통합 messages 테이블 실시간 구독 설정
       let channel: any
@@ -282,6 +303,205 @@ export default function ConversationView({
       setIsFirstLoad(false)
     }
   }, [messages, isFirstLoad])
+
+  // Load existing translations when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      // Only query translations for messages we haven't checked yet
+      const uncheckedMessageIds = messages
+        .filter(m => m.message_text && m.id && !checkedTranslationIds.has(m.id))
+        .map(m => m.id)
+        .filter(Boolean)
+      
+      if (uncheckedMessageIds.length > 0) {
+        loadExistingTranslations(uncheckedMessageIds)
+        // Mark these IDs as checked
+        setCheckedTranslationIds(prev => new Set([...prev, ...uncheckedMessageIds]))
+      }
+    }
+  }, [messages, checkedTranslationIds])
+
+  const loadExistingTranslations = async (messageIds: string[]) => {
+    if (messageIds.length === 0) return
+    
+    const { data } = await supabase
+      .from('translations')
+      .select('message_id, translated_text')
+      .in('message_id', messageIds)
+      .eq('target_lang', 'KO')
+      .eq('is_deleted', false)  // Only load active translations
+    
+    if (data && data.length > 0) {
+      const translationMap = data.reduce((acc, item) => ({
+        ...acc,
+        [item.message_id]: item.translated_text
+      }), {})
+      setTranslations(prev => ({ ...prev, ...translationMap }))
+    }
+  }
+
+  // Handle click outside for translation popup
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(event.target as Node)) {
+        setSelectedMessageId(null)
+        setPopupPosition(null)
+      }
+    }
+    
+    if (selectedMessageId) {
+      // Small delay to prevent conflict with click event
+      setTimeout(() => {
+        document.addEventListener('mousedown', handleClickOutside)
+      }, 100)
+      
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+      }
+    }
+  }, [selectedMessageId])
+
+  // Message click handler
+  const handleMessageClick = (e: React.MouseEvent, message: WebhookRecord) => {
+    // Skip messages without text
+    if (!message.message_text) return
+    
+    // Calculate popup position
+    const rect = e.currentTarget.getBoundingClientRect()
+    setPopupPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top - 10
+    })
+    setSelectedMessageId(message.id)
+    setSelectedMessageText(message.message_text)
+  }
+
+  // Handle translation
+  const handleTranslate = async (messageId: string, messageText: string) => {
+    // Skip if already translated
+    if (translations[messageId]) {
+      setSelectedMessageId(null)
+      setPopupPosition(null)
+      return
+    }
+    
+    setTranslatingMessageId(messageId)
+    
+    try {
+      const response = await fetch('/api/translation/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: messageText,
+          targetLang: 'ko',
+          messageId: messageId  // For DB storage and cache check
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setTranslations(prev => ({
+          ...prev,
+          [messageId]: data.result.text
+        }))
+        
+        // Log if loaded from cache (optional)
+        if (data.fromCache) {
+          console.log('Translation loaded from cache')
+        }
+      }
+    } catch (error) {
+      console.error('Translation failed:', error)
+    } finally {
+      setTranslatingMessageId(null)
+      setSelectedMessageId(null)
+      setPopupPosition(null)
+    }
+  }
+
+  // Handle translation deletion
+  const handleDeleteTranslation = async (messageId: string) => {
+    try {
+      const response = await fetch('/api/translation/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: messageId,
+          targetLang: 'ko'
+        })
+      })
+      
+      if (response.ok) {
+        // Remove from local state
+        setTranslations(prev => {
+          const updated = { ...prev }
+          delete updated[messageId]
+          return updated
+        })
+      }
+    } catch (error) {
+      console.error('Failed to delete translation:', error)
+    } finally {
+      setSelectedMessageId(null)
+      setPopupPosition(null)
+    }
+  }
+
+  // Fetch translation settings
+  const fetchTranslationSettings = async () => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/translation-settings`)
+      if (response.ok) {
+        const data = await response.json()
+        setTranslationEnabled(data.translation_enabled || false)
+        setTranslationTargetLang(data.translation_target_lang || '')
+      }
+    } catch (error) {
+      console.error('Failed to fetch translation settings:', error)
+    }
+  }
+
+  // Save translation settings
+  const saveTranslationSettings = async () => {
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/translation-settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          translation_enabled: translationTargetLang !== '',
+          translation_target_lang: translationTargetLang || null
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setTranslationEnabled(data.translation_enabled)
+        setShowTranslationSettings(false)
+      }
+    } catch (error) {
+      console.error('Failed to save translation settings:', error)
+    }
+  }
+
+  // Get language display name
+  const getLanguageName = (code: string) => {
+    const languages: Record<string, string> = {
+      EN: '영어',
+      JA: '일본어',
+      ZH: '중국어',
+      'ZH-TW': '중국어(번체)',
+      ES: '스페인어',
+      FR: '프랑스어',
+      DE: '독일어',
+      RU: '러시아어',
+      PT: '포르투갈어',
+      IT: '이탈리아어',
+      NL: '네덜란드어',
+      PL: '폴란드어'
+    }
+    return languages[code] || code
+  }
+  
   
   const fetchMessages = async (customOffset?: number, isInitial: boolean = false) => {
     if (!conversationId || (loadingMore && !isInitial)) return
@@ -368,18 +588,48 @@ export default function ConversationView({
   const sendMessage = async (retryMessage?: OptimisticMessage) => {
     // 재시도가 아닌 경우 현재 입력창의 텍스트 사용
     let messageContent: string
+    let originalContent: string = ''
+    
     if (retryMessage) {
       messageContent = retryMessage.message_text || ''
+      originalContent = messageContent
     } else {
       // 현재 입력창 텍스트를 가져오고 즉시 비우기
       messageContent = messageText.trim()
       if (!messageContent) return
+      originalContent = messageContent
       setMessageText('') // 즉시 입력창 비우기
       
       // Reset textarea height and focus
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto'
         textareaRef.current.focus()
+      }
+    }
+    
+    // Translate if translation is enabled
+    if (translationEnabled && translationTargetLang && !retryMessage) {
+      try {
+        const response = await fetch('/api/translation/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: messageContent,
+            targetLang: translationTargetLang,
+            sourceLang: 'KO'  // Assuming Korean source
+          })
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          messageContent = data.result.text
+          console.log(`Translated from: "${originalContent}" to: "${messageContent}"`)
+        } else {
+          console.error('Translation failed, sending original message')
+        }
+      } catch (error) {
+        console.error('Translation error:', error)
+        // Continue with original message if translation fails
       }
     }
     
@@ -495,13 +745,19 @@ export default function ConversationView({
     
     // Auto-resize textarea
     if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
+      // Set to minHeight first to get accurate scrollHeight
+      textareaRef.current.style.height = '30px'
       const scrollHeight = textareaRef.current.scrollHeight
-      const lineHeight = 20 // Approximate line height for text-xs
-      const maxLines = 3
-      const maxHeight = lineHeight * maxLines
+      const maxHeight = 92 // Exactly 4 lines (21px per line × 4 + 8px padding)
       
+      // Set height
       textareaRef.current.style.height = `${Math.min(scrollHeight, maxHeight)}px`
+      
+      // When content exceeds max height, ensure scroll position shows current text
+      if (scrollHeight > maxHeight) {
+        // Keep the scroll at the bottom to show the current typing position
+        textareaRef.current.scrollTop = textareaRef.current.scrollHeight
+      }
     }
   }
 
@@ -908,8 +1164,10 @@ export default function ConversationView({
             className="w-4 h-4 object-contain"
           />
         </div>
-        <button
-          onClick={async () => {
+        <div className="flex items-center gap-2">
+          {/* Status Change Button */}
+          <button
+            onClick={async () => {
             if (!conversationId || isCompleting) return
             
             const newStatus = currentStatus === 'completed' ? 'in_progress' : 'completed'
@@ -959,6 +1217,7 @@ export default function ConversationView({
                 : '상담 완료'
           }
         </button>
+        </div>
       </div>
 
       {/* Messaging Window Warning Banner - Instagram only */}
@@ -1062,15 +1321,34 @@ export default function ConversationView({
                       <div className={`flex ${isBusinessMessage ? 'flex-row-reverse' : 'flex-row'} items-center gap-2 max-w-xs lg:max-w-md`}>
                         {/* 말풍선 */}
                         <div
-                          className={`px-4 py-2 rounded-2xl relative ${
+                          className={`px-4 py-2 rounded-2xl relative cursor-pointer hover:opacity-90 ${
                             isBusinessMessage
                               ? msg.status === 'failed'
                                 ? 'bg-red-500 text-white'
                                 : 'bg-blue-600 text-white'
                               : 'bg-gray-100 text-gray-900'
                           } ${msg.status === 'pending' ? 'opacity-70' : ''}`}
+                          onClick={(e) => handleMessageClick(e, msg)}
                         >
-                          {renderMessageContent(msg)}
+                          <div>
+                            {renderMessageContent(msg)}
+                            {/* Show translated text if available */}
+                            {translations[msg.id] && (
+                              <div className={`mt-1 pt-1 border-t ${
+                                isBusinessMessage 
+                                  ? 'border-white/20'  // For blue/red backgrounds
+                                  : 'border-gray-400/30'  // For gray background (more visible)
+                              }`}>
+                                <p className={`text-xs italic ${
+                                  isBusinessMessage 
+                                    ? 'opacity-90'  // White text with opacity
+                                    : 'text-gray-600'  // Darker gray text for better contrast
+                                }`}>
+                                  {translations[msg.id]}
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         </div>
                         
                         {/* 실패 상태 표시 */}
@@ -1126,12 +1404,20 @@ export default function ConversationView({
         )}
       </div>
 
-      {/* Message Input */}
-      <div className="px-4 py-3 border-t border-gray-200 bg-white">
-        <div className="flex items-center gap-2">
-          {/* File Attachment Button */}
+      {/* WhatsApp Style Message Input */}
+      <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-3xl transition-all ${
+          translationEnabled && translationTargetLang
+            ? 'bg-green-50 border border-green-200'
+            : 'bg-white border border-gray-200'
+        }`}>
+          {/* Attachment Button */}
           <button
-            className="p-2 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+            className={`p-1.5 rounded-full transition-colors ${
+              !customerId || !messagingWindowStatus.canSend
+                ? 'text-gray-400 cursor-not-allowed'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
             title="파일 첨부 (준비 중)"
             disabled
           >
@@ -1140,7 +1426,26 @@ export default function ConversationView({
             </svg>
           </button>
           
-          {/* Textarea */}
+          {/* Input Field with WhatsApp Scrollbar */}
+          <style jsx>{`
+            textarea.whatsapp-scrollbar {
+              scrollbar-width: thin;
+              scrollbar-color: rgba(0,0,0,0.2) transparent;
+            }
+            textarea.whatsapp-scrollbar::-webkit-scrollbar {
+              width: 4px;
+            }
+            textarea.whatsapp-scrollbar::-webkit-scrollbar-track {
+              background: transparent;
+            }
+            textarea.whatsapp-scrollbar::-webkit-scrollbar-thumb {
+              background-color: rgba(0,0,0,0.2);
+              border-radius: 20px;
+            }
+            textarea.whatsapp-scrollbar::-webkit-scrollbar-thumb:hover {
+              background-color: rgba(0,0,0,0.3);
+            }
+          `}</style>
           <textarea
             ref={textareaRef}
             value={messageText}
@@ -1149,18 +1454,46 @@ export default function ConversationView({
             placeholder={
               !customerId ? "대화를 선택하세요" :
               !messagingWindowStatus.canSend ? "메시징 시간이 만료되었습니다" :
-              "메시지 입력..."
+              translationEnabled && translationTargetLang
+                ? `메시지 입력... (${getLanguageName(translationTargetLang)}로 번역됩니다)`
+                : "메시지 입력..."
             }
             disabled={!customerId || !messagingWindowStatus.canSend}
             rows={1}
-            className={`flex-1 px-4 py-2 text-xs border border-gray-300 rounded-2xl resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              !customerId || !messagingWindowStatus.canSend ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+            className={`whatsapp-scrollbar flex-1 px-3 py-1 text-sm text-gray-900 bg-transparent resize-none overflow-y-auto outline-none ${
+              !customerId || !messagingWindowStatus.canSend 
+                ? 'cursor-not-allowed' 
+                : translationEnabled && translationTargetLang
+                  ? 'placeholder-green-600'
+                  : 'placeholder-gray-400'
             }`}
             style={{
-              minHeight: '36px',
-              maxHeight: '60px', // Approximately 3 lines
+              minHeight: '30px',
+              maxHeight: '92px', // Exactly 4 lines
+              lineHeight: '1.5',
             }}
           />
+          
+          {/* WhatsApp Style Buttons */}
+          {/* Translation Button */}
+          {customerId && (
+            <button
+              onClick={() => setShowTranslationSettings(true)}
+              className={`p-1.5 rounded-full transition-all ${
+                translationEnabled && translationTargetLang 
+                  ? 'bg-green-100 text-green-600 hover:bg-green-200' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+              title="번역 설정"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+              </svg>
+            </button>
+          )}
           
           {/* Send Button */}
           <button
@@ -1168,24 +1501,136 @@ export default function ConversationView({
               sendMessage()
               // Reset textarea height and focus after sending
               if (textareaRef.current) {
-                textareaRef.current.style.height = 'auto'
+                textareaRef.current.style.height = '30px'
                 textareaRef.current.focus()
               }
             }}
             disabled={!customerId || !messageText.trim() || !messagingWindowStatus.canSend}
-            className={`p-2 rounded-full transition-colors ${
+            className={`p-1.5 rounded-full transition-all ${
               !customerId || !messageText.trim() || !messagingWindowStatus.canSend
                 ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
+                : 'bg-blue-500 text-white hover:bg-blue-600 shadow-lg'
             }`}
-            title={!messagingWindowStatus.canSend ? "메시징 시간 만료" : "전송"}
+            title={
+              !messagingWindowStatus.canSend 
+                ? "메시징 시간 만료" 
+                : translationEnabled && translationTargetLang
+                  ? `${getLanguageName(translationTargetLang)}로 번역 후 전송`
+                  : "전송"
+            }
           >
-            <svg className="w-5 h-5 rotate-45" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
             </svg>
           </button>
         </div>
       </div>
+      
+      {/* Translation Popup */}
+      {selectedMessageId && popupPosition && (
+        <div
+          ref={popupRef}
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-3"
+          style={{
+            left: `${popupPosition.x}px`,
+            top: `${popupPosition.y}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          {/* Show different UI based on translation status */}
+          {translations[selectedMessageId] ? (
+            <button
+              onClick={() => handleDeleteTranslation(selectedMessageId)}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              번역 삭제
+            </button>
+          ) : (
+            <button
+              onClick={() => handleTranslate(selectedMessageId, selectedMessageText!)}
+              disabled={translatingMessageId === selectedMessageId}
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {translatingMessageId === selectedMessageId ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                  번역중...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                      d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                  </svg>
+                  한국어로 번역
+                </>
+              )}
+            </button>
+          )}
+          
+          {/* Triangle arrow */}
+          <div className="absolute -bottom-1.5 left-1/2 transform -translate-x-1/2">
+            <div className="w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-white filter drop-shadow-sm"></div>
+          </div>
+        </div>
+      )}
+      
+      {/* Translation Settings Modal */}
+      {showTranslationSettings && (
+        <div className="fixed inset-0 flex items-center justify-center z-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <div className="bg-white rounded-lg p-6 w-96 max-w-[90%]">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900">번역 설정</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-900 mb-2">
+                번역 언어 선택
+              </label>
+              <select
+                value={translationTargetLang}
+                onChange={(e) => setTranslationTargetLang(e.target.value)}
+                className="w-full px-3 py-2 text-gray-900 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2714%27%20height%3D%278%27%20viewBox%3D%270%200%2014%208%27%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%3E%3Cpath%20d%3D%27M1%201l6%206%206-6%27%20stroke%3D%27%236B7280%27%20stroke-width%3D%272%27%20fill%3D%27none%27%20fill-rule%3D%27evenodd%27%2F%3E%3C%2Fsvg%3E')] bg-[length:14px_8px] bg-[right_12px_center] bg-no-repeat pr-10"
+              >
+                <option value="">사용 안함</option>
+                <option value="EN">영어 (English)</option>
+                <option value="JA">일본어 (日本語)</option>
+                <option value="ZH">중국어 간체 (简体中文)</option>
+                <option value="ZH-TW">중국어 번체 (繁體中文)</option>
+                <option value="ES">스페인어 (Español)</option>
+                <option value="FR">프랑스어 (Français)</option>
+                <option value="DE">독일어 (Deutsch)</option>
+                <option value="RU">러시아어 (Русский)</option>
+                <option value="PT">포르투갈어 (Português)</option>
+                <option value="IT">이탈리아어 (Italiano)</option>
+                <option value="NL">네덜란드어 (Nederlands)</option>
+                <option value="PL">폴란드어 (Polski)</option>
+              </select>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowTranslationSettings(false)
+                  // Reset to saved values
+                  setTranslationTargetLang(translationEnabled ? translationTargetLang : '')
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={saveTranslationSettings}
+                className="px-4 py-2 text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

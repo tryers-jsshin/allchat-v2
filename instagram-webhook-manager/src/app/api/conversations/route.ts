@@ -103,12 +103,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'conversation_id is required' }, { status: 400 })
     }
 
-    const updateData: any = { updated_at: new Date().toISOString() }
+    const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() }
     
     if (status !== undefined) updateData.status = status
     
     // platform_data 내의 필드들은 JSONB로 업데이트
-    const platformDataUpdates: any = {}
+    const platformDataUpdates: Record<string, unknown> = {}
     if (assigned_to !== undefined) platformDataUpdates.assigned_to = assigned_to
     if (notes !== undefined) platformDataUpdates.notes = notes
     if (tags !== undefined) platformDataUpdates.tags = tags

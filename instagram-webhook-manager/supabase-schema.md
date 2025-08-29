@@ -92,6 +92,8 @@
 | customer_is_verified | boolean | YES | false | - |
 | messaging_window_expires_at | timestamp with time zone | YES | - | 메시징 윈도우 만료 시간 (Instagram: 고객 메시지 수신 시점 + 24시간, LINE: NULL) |
 | messaging_window_type | text | YES | 'human_agent'::text | 메시징 윈도우 타입: standard (24시간), NULL (LINE - 제한 없음) |
+| translation_enabled | boolean | YES | false | - |
+| translation_target_lang | character varying(10) | YES | NULL::character varying | - |
 
 
 ### instagram_user_profiles
@@ -143,6 +145,27 @@
 | platform_data | jsonb | YES | - | - |
 | created_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
 | updated_at | timestamp with time zone | YES | timezone('utc'::text, now()) | - |
+
+
+### translations
+> 메시지 번역 저장 및 캐싱 테이블
+
+**Columns:**
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | uuid | NO | gen_random_uuid() | - |
+| message_id | uuid | YES | - | 연관된 메시지 ID (선택적) |
+| original_text | text | NO | - | 원본 텍스트 |
+| translated_text | text | NO | - | 번역된 텍스트 |
+| source_lang | character varying(10) | YES | - | 원본 언어 코드 (NULL = 자동 감지) |
+| target_lang | character varying(10) | NO | - | 대상 언어 코드 |
+| translation_provider | character varying(20) | YES | 'deepl'::character varying | 번역 제공자 (deepl, google, etc) |
+| response_time_ms | integer | YES | - | API 응답 시간 (밀리초) |
+| character_count | integer | YES | - | 문자 수 (향후 사용량 추적용) |
+| created_at | timestamp with time zone | YES | now() | - |
+| is_deleted | boolean | YES | false | - |
+| deleted_at | timestamp with time zone | YES | - | - |
 
 
 ### line_user_profiles
@@ -230,10 +253,12 @@
 - **line_user_profiles**: (id)
 - **line_webhooks**: (id)
 - **messages**: (id)
+- **translations**: (id)
 - **user_profiles**: (id)
 ## Foreign Keys
 
 - **messages_conversation_id_fkey**: messages (conversation_id) → conversations (id)
+- **translations_message_id_fkey**: translations (message_id) → messages (id)
 ## Check Constraints
 
 - **messages.messages_platform_check**: `CHECK ((platform = ANY (ARRAY['instagram'::text, 'line'::text, 'kakao'::text, 'whatsapp'::text])))`
@@ -274,6 +299,7 @@
 - **idx_conversations_platform_status_unread**: btree on conversations (CREATE INDEX idx_conversations_platform_status_unread ON public.conversations USING btree (platform, status, unread_count DESC))
 - **idx_conversations_platform_updated**: btree on conversations (CREATE INDEX idx_conversations_platform_updated ON public.conversations USING btree (platform, updated_at DESC))
 - **idx_conversations_messaging_window_expires**: btree on conversations (CREATE INDEX idx_conversations_messaging_window_expires ON public.conversations USING btree (platform, messaging_window_expires_at) WHERE (messaging_window_expires_at IS NOT NULL))
+- **idx_conversations_translation**: btree on conversations (CREATE INDEX idx_conversations_translation ON public.conversations USING btree (translation_enabled, translation_target_lang) WHERE (translation_enabled = true))
 - **instagram_user_profiles_igsid_key**: UNIQUE btree on instagram_user_profiles (CREATE UNIQUE INDEX instagram_user_profiles_igsid_key ON public.instagram_user_profiles USING btree (igsid))
 - **idx_user_profiles_igsid**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_igsid ON public.instagram_user_profiles USING btree (igsid))
 - **idx_user_profiles_username**: btree on instagram_user_profiles (CREATE INDEX idx_user_profiles_username ON public.instagram_user_profiles USING btree (username))
@@ -287,6 +313,12 @@
 - **idx_user_profiles_platform**: btree on user_profiles (CREATE INDEX idx_user_profiles_platform ON public.user_profiles USING btree (platform))
 - **idx_profiles_platform_user**: btree on user_profiles (CREATE INDEX idx_profiles_platform_user ON public.user_profiles USING btree (platform, platform_user_id))
 - **idx_profiles_display**: btree on user_profiles (CREATE INDEX idx_profiles_display ON public.user_profiles USING btree (display_name, username))
+- **idx_translations_message**: btree on translations (CREATE INDEX idx_translations_message ON public.translations USING btree (message_id) WHERE (message_id IS NOT NULL))
+- **idx_translations_created**: btree on translations (CREATE INDEX idx_translations_created ON public.translations USING btree (created_at DESC))
+- **idx_translations_langs**: btree on translations (CREATE INDEX idx_translations_langs ON public.translations USING btree (source_lang, target_lang))
+- **unique_translation_per_message**: UNIQUE btree on translations (CREATE UNIQUE INDEX unique_translation_per_message ON public.translations USING btree (message_id, target_lang, translation_provider))
+- **idx_translations_message_cache**: btree on translations (CREATE INDEX idx_translations_message_cache ON public.translations USING btree (message_id, target_lang, translation_provider) WHERE (message_id IS NOT NULL))
+- **idx_translations_active**: btree on translations (CREATE INDEX idx_translations_active ON public.translations USING btree (message_id, target_lang, is_deleted) WHERE (is_deleted = false))
 - **line_user_profiles_user_id_key**: UNIQUE btree on line_user_profiles (CREATE UNIQUE INDEX line_user_profiles_user_id_key ON public.line_user_profiles USING btree (user_id))
 - **idx_line_user_profiles_user_id**: btree on line_user_profiles (CREATE INDEX idx_line_user_profiles_user_id ON public.line_user_profiles USING btree (user_id))
 - **idx_line_user_profiles_cache_expires**: btree on line_user_profiles (CREATE INDEX idx_line_user_profiles_cache_expires ON public.line_user_profiles USING btree (cache_expires_at))
@@ -317,10 +349,10 @@
 ### sync_instagram_all_in_one_trigger on instagram_webhooks\n- **Event**: AFTER\n- **Timing**: INSERT\n- **Function**: sync_instagram_all_in_one\n
 ## RLS Policies
 
-### instagram_user_profiles
+### messages
 **RLS Enabled**: Yes
 
-- **Allow all operations on user profiles** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow all operations on messages** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 
 ### instagram_webhooks
 **RLS Enabled**: Yes
@@ -329,12 +361,15 @@
 - **Allow authenticated select** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 - **Allow authenticated update** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 
-### line_sent_messages
+### instagram_user_profiles
 **RLS Enabled**: Yes
 
-- **Allow anonymous insert sent** (INSERT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-- **Allow authenticated select sent** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
-- **Allow authenticated update sent** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow all operations on user profiles** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+
+### translations
+**RLS Enabled**: Yes
+
+- **Allow all operations on translations** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 
 ### line_webhooks
 **RLS Enabled**: Yes
@@ -343,10 +378,12 @@
 - **Allow authenticated select webhooks** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 - **Allow authenticated update webhooks** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 
-### messages
+### line_sent_messages
 **RLS Enabled**: Yes
 
-- **Allow all operations on messages** (ALL): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow anonymous insert sent** (INSERT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow authenticated select sent** (SELECT): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
+- **Allow authenticated update sent** (UPDATE): PERMISSIVE\n  - Using: `true`\n  - Check: `true`
 ## Views
 
 ### active_messaging_windows

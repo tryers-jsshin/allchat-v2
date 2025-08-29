@@ -289,6 +289,17 @@ export async function POST(request: NextRequest) {
         } else {
           console.log('Webhook saved to database:', data.id);
         }
+        
+        // LINE 프로필 가져오기 (새 유저일 때만)
+        if (event.type === 'message' && event.source?.userId) {
+          // 비동기로 프로필 가져오기 (응답 대기하지 않음)
+          fetch(`${process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'}/api/profiles/line/${event.source.userId}`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          }).catch(err => console.error('Failed to fetch LINE profile:', err));
+          
+          console.log('Triggered LINE profile fetch for user:', event.source.userId);
+        }
       } catch (dbError) {
         console.error('Database error:', dbError);
         // Continue processing even if database save fails

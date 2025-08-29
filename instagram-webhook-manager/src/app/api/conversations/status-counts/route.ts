@@ -25,7 +25,13 @@ export async function GET(request: NextRequest) {
       // 특정 플랫폼만 카운트
       const { data, error } = await supabase
         .rpc('get_conversation_status_counts', { p_platform: platform })
-        .single()
+        .single<{
+          active_count: number
+          total_count: number
+          completed_count: number
+          pending_count: number
+          in_progress_count: number
+        }>()
       
       if (error) {
         console.error('Database error:', error)
@@ -33,11 +39,11 @@ export async function GET(request: NextRequest) {
       }
       
       counts = {
-        active: Number(data.active_count) || 0,
-        all: Number(data.total_count) || 0,
-        completed: Number(data.completed_count) || 0,
-        pending: Number(data.pending_count) || 0,
-        in_progress: Number(data.in_progress_count) || 0,
+        active: Number(data?.active_count) || 0,
+        all: Number(data?.total_count) || 0,
+        completed: Number(data?.completed_count) || 0,
+        pending: Number(data?.pending_count) || 0,
+        in_progress: Number(data?.in_progress_count) || 0,
         spam: 0
       }
     } else {
@@ -47,7 +53,13 @@ export async function GET(request: NextRequest) {
       for (const plt of platforms) {
         const { data, error } = await supabase
           .rpc('get_conversation_status_counts', { p_platform: plt })
-          .single()
+          .single<{
+            active_count: number
+            total_count: number
+            completed_count: number
+            pending_count: number
+            in_progress_count: number
+          }>()
         
         if (!error && data) {
           counts.active += Number(data.active_count) || 0

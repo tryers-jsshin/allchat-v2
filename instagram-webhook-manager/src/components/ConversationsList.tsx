@@ -96,11 +96,14 @@ export default function ConversationsList({
               statusFilterRef.current === 'all' ||
               (statusFilterRef.current === 'in_progress' && newConversation.status === 'in_progress') ||
               (statusFilterRef.current === 'completed' && newConversation.status === 'completed')
-              
-            if (!shouldBeVisible) return
             
-            // 전체 대화 목록 다시 불러오기 (프로필 정보 포함)
-            fetchConversations()
+            // 상태 카운트는 항상 업데이트 (어떤 탭에서든)
+            fetchStatusCounts()
+            
+            // 현재 탭에 표시되어야 하는 경우에만 대화 목록 갱신
+            if (shouldBeVisible) {
+              fetchConversations()
+            }
           } else if (payload.eventType === 'UPDATE') {
             // conversations 테이블 업데이트 시
             const updatedConversation = payload.new as any
@@ -113,7 +116,10 @@ export default function ConversationsList({
             // UI에 영향을 주는 중요한 필드 변경 확인
             const hasImportantChange = 
               oldConversation?.last_message_text !== updatedConversation?.last_message_text ||
-              actualOldStatus !== updatedConversation?.status
+              actualOldStatus !== updatedConversation?.status ||
+              // 프로필 정보 변경도 중요한 변경으로 처리
+              oldConversation?.customer_name !== updatedConversation?.customer_name ||
+              oldConversation?.customer_profile_pic !== updatedConversation?.customer_profile_pic
             
             // unread_count 변경은 메시지 텍스트가 같이 변경될 때만 처리
             // (단순 카운트만 변경된 경우는 무시)
@@ -152,27 +158,8 @@ export default function ConversationsList({
                 to: updatedConversation.status
               })
               
-              // API 호출 대신 직접 카운트 계산 (한 번만)
-              setStatusCounts(prev => {
-                const newCounts = {...prev}
-                
-                // 이전 상태에서 카운트 감소 (actualOldStatus 사용)
-                if (actualOldStatus === 'in_progress') {
-                  newCounts.in_progress = Math.max(0, newCounts.in_progress - 1)
-                } else if (actualOldStatus === 'completed') {
-                  newCounts.completed = Math.max(0, newCounts.completed - 1)
-                }
-                
-                // 새 상태에서 카운트 증가
-                if (updatedConversation.status === 'in_progress') {
-                  newCounts.in_progress++
-                } else if (updatedConversation.status === 'completed') {
-                  newCounts.completed++
-                }
-                
-                // all 카운트는 총합 유지 (변경 없음)
-                return newCounts
-              })
+              // 상태가 변경된 경우 카운트 API 호출
+              fetchStatusCounts()
               
               // completed → in_progress 전환 시 처리
               if (actualOldStatus === 'completed' && updatedConversation.status === 'in_progress') {
@@ -213,7 +200,16 @@ export default function ConversationsList({
                     last_message_text: updatedConversation.last_message_text || prev[existingIndex].last_message_text,
                     last_message_type: updatedConversation.last_message_type || prev[existingIndex].last_message_type,
                     last_sender_id: updatedConversation.last_sender_id || prev[existingIndex].last_sender_id,
-                    updated_at: updatedConversation.updated_at
+                    updated_at: updatedConversation.updated_at,
+                    // 프로필 정보도 업데이트
+                    customer_profile: updatedConversation.customer_name ? {
+                      igsid: updatedConversation.customer_id,
+                      name: updatedConversation.customer_name,
+                      username: updatedConversation.platform_data?.username || null,
+                      profile_pic: updatedConversation.customer_profile_pic,
+                      is_verified_user: updatedConversation.customer_is_verified,
+                      follower_count: updatedConversation.platform_data?.follower_count || null
+                    } : prev[existingIndex].customer_profile
                   }
                   // 시간순 정렬
                   return updated.sort((a, b) => 
@@ -452,11 +448,21 @@ export default function ConversationsList({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
+                      <div className="text-sm font-medium text-gray-900 truncate">
                         {conversation.customer_profile?.name || 
-                         conversation.customer_profile?.username || 
-                         conversation.customer_id}
-                      </p>
+                         conversation.customer_profile?.username ? (
+                          // 프로필이 있으면 표시
+                          conversation.customer_profile?.name || conversation.customer_profile?.username
+                        ) : conversation.customer_id ? (
+                          // 프로필 로딩 중 - Skeleton UI
+                          <span className="inline-block animate-pulse">
+                            <span className="inline-block h-3.5 bg-gray-200 rounded w-24"></span>
+                          </span>
+                        ) : (
+                          // customer_id도 없는 경우
+                          conversation.customer_id
+                        )}
+                      </div>
                       {/* Platform Icon */}
                       <img 
                         src={conversation.platform === 'line' ? '/line-logo.svg' : '/instagram-logo.png'} 

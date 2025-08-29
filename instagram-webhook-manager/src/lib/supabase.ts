@@ -249,3 +249,21 @@ export type UnifiedUserProfile = {
   created_at?: string
   updated_at?: string
 }
+
+// ===== Translation Tables =====
+
+/**
+ * Translations table - 메시지 번역 저장 및 캐싱
+ */
+export type Translation = {
+  id?: string
+  message_id?: string | null  // FK → messages.id (optional for cached translations)
+  original_text: string
+  translated_text: string
+  source_lang?: string | null  // NULL means auto-detected
+  target_lang: string
+  translation_provider?: string  // 'deepl', 'google', etc.
+  response_time_ms?: number | null
+  character_count?: number | null
+  created_at?: string
+}
